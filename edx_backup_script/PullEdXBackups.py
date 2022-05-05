@@ -29,9 +29,12 @@ The csv file only needs one header:
 URL - the address of class' Export page
 
 Options:
--h or --help: Print this message and exit.
--o or --output: Sets the folder where the course exports will be saved.
-                Defaults to the current directory.
+-h, --help     Print this message and exit.
+-o, --output   Sets the folder where the course exports will be saved.
+               Defaults to the current directory.
+-s, -sessions  Sets the number of simultaneous sessions.
+               Minimum 1, max and default of CPU count - 1.
+-v, --visible  Runs the browser in regular mode instead of headless.
 
 This script also creates a second CSV file, missing_exports.csv,
 which shows which courses couldn't be accessed.
@@ -114,10 +117,18 @@ def signIn(driver, username, password):
     return
 
 
+def signInAll(drivers, username, password):
+    while not drivers.empty():
+        d = drivers.get()
+        signIn(d, username, password)
+    return d
+
+
 # Runs the loop that processes things.
 # In this example it just waits a random amount of time,
 # to simulate projects taking different amounts of time.
-def ye_function(inputs, tools):
+def getDownloads(drivers, urls):
+
     # As long as there's something in the input queue,
     while not inputs.empty():
         # Pull an input and tool off their queues.
@@ -134,28 +145,119 @@ def ye_function(inputs, tools):
 
 
 def PullEdXBackups():
-    # This is our data. Could be URLs to visit.
-    input_list = multiprocessing.Queue()
-    for i in range(0, 20):
-        input_list.put("project " + str(i))
 
-    # These are tools that process the data. Could be webdrivers.
-    tool_list = multiprocessing.Queue()
-    for j in ["A", "B", "C", "D", "E"]:
-        tool_list.put("tool " + str(j))
+    num_classes = 0
+    num_backups_successful = 0
+    skipped_classes = []
+    simultaneous_sessions = multiprocessing.cpu_count() - 1
+    sessions = []
+    run_headless = True
+    timeouts = 0
+    too_many_timeouts = 3
+
+    # Read in command line arguments.
+    parser = argparse.ArgumentParser(usage=instructions, add_help=False)
+    parser.add_argument("-h", "--help", action="store_true")
+    parser.add_argument("-v", "--visible", action="store_true")
+    parser.add_argument("-o", "--output", action="store")
+    parser.add_argument("-s", "--sessions", action="store")
+    parser.add_argument("csvfile", default=None)
+
+    args = parser.parse_args()
+    if args.help or args.csvfile is None:
+        sys.exit(instructions)
+
+    if not os.path.exists(args.csvfile):
+        sys.exit("Input file not found: " + args.csvfile)
+
+    if args.output:
+        if not os.path.exists(args.output):
+            sys.exit("Output folder not found: " + args.output)
+
+    if args.visible:
+        run_headless = False
 
     # Spin up several processes, but not more than we have tools.
     # Leave some CPU for other people.
-    num_processes = min(len(tool_list), multiprocessing.cpu_count() - 1)
-    processes = []
+    if args.sessions:
+        try:
+            simultaneous_sessions = int(args.sessions)
+        except:
+            sys.exit("Are you sure you entered a number for the number of sessions?")
+    else:
+        simultaneous_sessions = max(1, simultaneous_sessions)
+    print("Running with " + str(simultaneous_sessions) + " sessions.")
 
-    for n in range(0, num_processes):
+    # Prompt for username and password
+    # TODO: Maybe allow a file to read username and pw from.
+    print(
+        """
+This script requires a username and password to run.
+This user must have Admin status on all courses in which
+the script is to run. Press control-C to cancel.
+"""
+    )
+    username = input("User e-mail address: ")
+    password = getpass()
+
+    start_time = datetime.datetime.now()
+
+    # Read the CSV.
+
+    # Open the csv and read the URLs into our queue.
+    urls = multiprocessing.Queue()
+    with open(args.csvfile, "r") as f:
+        log("Opening csv file.")
+        reader = csv.DictReader(f)
+
+        # For each line in the CSV...
+        for each_row in reader:
+            # log("Processing line:", "DEBUG")
+            # log(each_row, "DEBUG")
+
+            # Open the URL. Skip lines without one.
+            if each_row["URL"] == "":
+                continue
+
+            urls.put(each_row["URL"])
+
+    # These are the webdrivers that process our downloads.
+    drivers = multiprocessing.Queue()
+    for j in range(0, simultaneous_sessions):
+        drivers.put(setUpWebdriver(run_headless))
+
+    # Sign in all the webdrivers
+    # Need to keep track of them so we can requeue them.
+    manager = multiprocessing.Manager()
+    return_list = manager.list()
+    sign_ins = []
+    for i in range(0, simultaneous_sessions):
         # Creating processes that will run in parallel.
         p = multiprocessing.Process(
-            target=ye_function,
+            target=signInAll,
+            args=(drivers, username, password, return_list),
+        )
+        # Track them so we can stop them later.
+        sign_ins.append(p)
+        # Run the processes.
+        p.start()
+    for x in sign_ins:
+        # Closes out the processes cleanly.
+        x.join()
+
+    # Now that they're signed in we need to put them back in the queue.
+    for j in range(0, simultaneous_sessions):
+        drivers.put(return_list[j])
+
+    # Run the download processes.
+    processes = []
+    for n in range(0, simultaneous_sessions):
+        # Creating processes that will run in parallel.
+        p = multiprocessing.Process(
+            target=getDownloads,
             args=(
-                input_list,
-                tool_list,
+                drivers,
+                urls,
             ),
         )
         # Track them so we can stop them later.
