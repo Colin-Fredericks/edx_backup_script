@@ -129,18 +129,28 @@ def signInAll(drivers, username, password):
 # to simulate projects taking different amounts of time.
 def getDownloads(drivers, urls):
 
-    # As long as there's something in the input queue,
-    while not inputs.empty():
-        # Pull an input and tool off their queues.
-        i = inputs.get()
-        t = tools.get()
-        print("Tool " + t + " starting work on " + str(i))
-        # "process" the data (just waiting)
-        time.sleep(random.randint(5, 10))
-        print("Tool " + t + " finished work on " + str(i))
+    make_export_button_css = "a.action-export"
+    download_export_button_css = "a#download-exported-button"
+    wait_for_download_button = 600  # seconds
+
+    # As long as we still have URLs to process,
+    while not urls.empty():
+        # Pull a URL and driver off their queues.
+        url = urls.get()
+        d = drivers.get()
+        print("Starting work on " + url)
+
+        # Open the URL
+        # Click the "export course content" button.
+        #   If that's not present, give it a few tries, but we might not be signed in.
+        # Wait to see if the export processes.
+        #   If it does, download the file.
+        #   If not, mark this one as a problem and put it on the list.
+
+        print("Finished with " + url)
         # When the tool is ready again, put it back on its queue.
-        tools.put(t)
-    print("queue empty")
+        drivers.put(d)
+    print("URL queue empty.")
     return True
 
 
@@ -227,7 +237,7 @@ the script is to run. Press control-C to cancel.
         drivers.put(setUpWebdriver(run_headless))
 
     # Sign in all the webdrivers
-    # Need to keep track of them so we can requeue them.
+    # Need Manager to keep track of them so we can requeue them.
     manager = multiprocessing.Manager()
     return_list = manager.list()
     sign_ins = []
@@ -245,9 +255,9 @@ the script is to run. Press control-C to cancel.
         # Closes out the processes cleanly.
         x.join()
 
-    # Now that they're signed in we need to put them back in the queue.
-    for j in range(0, simultaneous_sessions):
-        drivers.put(return_list[j])
+    # Now that the drivers are signed in we need to put them back in the queue.
+    for d in return_list:
+        drivers.put(d)
 
     # Run the download processes.
     processes = []
