@@ -67,14 +67,37 @@ def log(text, level="INFO"):
 
 
 # Instantiating a headless Chrome browser
-def setUpWebdriver(run_headless):
+def setUpWebdriver(run_headless, target_folder):
     log("Setting up webdriver.")
     os.environ["PATH"] = os.environ["PATH"] + os.pathsep + os.path.dirname(__file__)
     op = Options()
     if run_headless:
         op.add_argument("--headless")
+    op.add_experimental_option(
+        "prefs",
+        {
+            "download.default_directory": target_folder,
+            "download.prompt_for_download": False,
+            "download.directory_upgrade": True,
+            "safebrowsing_for_trusted_sources_enabled": False,
+            "safebrowsing.enabled": False,
+        },
+    )
     driver = webdriver.Chrome(options=op)
-    driver.implicitly_wait(1)
+    driver.implicitly_wait(5)
+
+    # Allow headless browsers to download things.
+    # Code from https://stackoverflow.com/questions/52830115/python-selenium-headless-download
+    driver.command_executor._commands["send_command"] = (
+        "POST",
+        "/session/$sessionId/chromium/send_command",
+    )
+    params = {
+        "cmd": "Page.setDownloadBehavior",
+        "params": {"behavior": "allow", "downloadPath": download_dir},
+    }
+    driver.execute("send_command", params)
+
     return driver
 
 
@@ -117,17 +140,17 @@ def signIn(driver, username, password):
     return
 
 
-def signInAll(drivers, username, password):
+def signInAll(drivers, username, password, return_list):
     while not drivers.empty():
         d = drivers.get()
         signIn(d, username, password)
-    return d
+    return_list.append(d)
 
 
 # Runs the loop that processes things.
 # In this example it just waits a random amount of time,
 # to simulate projects taking different amounts of time.
-def getDownloads(drivers, urls):
+def getDownloads(drivers, urls, failed_courses):
 
     make_export_button_css = "a.action-export"
     download_export_button_css = "a#download-exported-button"
@@ -141,16 +164,59 @@ def getDownloads(drivers, urls):
         print("Starting work on " + url)
 
         # Open the URL
+        try:
+            WebDriverWait(driver, 10).until(
+                EC.visibility_of_element_located(
+                    (By.CSS_SELECTOR, make_export_button_css)
+                )
+            )
+        except Exception as e:
+            # If we can't open the URL, make a note, put the driver back,
+            # and move on to the next url.
+            log(repr(e), "DEBUG")
+            log("Couldn't open " + url)
+            failed_courses.append(url)
+            drivers.put(d)
+            continue
+
         # Click the "export course content" button.
-        #   If that's not present, give it a few tries, but we might not be signed in.
+        export_course_button = driver.find_elements(
+            By.CSS_SELECTOR, make_export_button_css
+        )
+        export_course_button[0].click()
+
+        try:
+            WebDriverWait(d, wait_for_download_button).until(
+                EC.visibility_of_element_located(
+                    (By.CSS_SELECTOR, download_export_button_css)
+                )
+            )
+        except:
+            # If the download button never appears,
+            # make a note, put the driver back, and move on to the next url.
+            log(repr(e), "DEBUG")
+            log("Timed out on " + url)
+            failed_courses.append(url)
+            drivers.put(d)
+            continue
+
         # Wait to see if the export processes.
         #   If it does, download the file.
+        download_course_button = driver.find_elements(
+            By.CSS_SELECTOR, download_export_button_css
+        )
+        download_course_button[0].click()
         #   If not, mark this one as a problem and put it on the list.
 
-        print("Finished with " + url)
-        # When the tool is ready again, put it back on its queue.
+        print("Downloading export from " + url)
+
+        # Wait for the export to be done.
+
+        # When the webdriver is ready again, put it back on its queue.
         drivers.put(d)
+
     print("URL queue empty.")
+    d.quit()
     return True
 
 
@@ -159,11 +225,8 @@ def PullEdXBackups():
     num_classes = 0
     num_backups_successful = 0
     skipped_classes = []
-    simultaneous_sessions = multiprocessing.cpu_count() - 1
-    sessions = []
     run_headless = True
-    timeouts = 0
-    too_many_timeouts = 3
+    simultaneous_sessions = multiprocessing.cpu_count() - 1
 
     # Read in command line arguments.
     parser = argparse.ArgumentParser(usage=instructions, add_help=False)
@@ -180,9 +243,14 @@ def PullEdXBackups():
     if not os.path.exists(args.csvfile):
         sys.exit("Input file not found: " + args.csvfile)
 
+    #  If there's no output folder specified, use the working directory.
     if args.output:
         if not os.path.exists(args.output):
             sys.exit("Output folder not found: " + args.output)
+        else:
+            target_folder = args.output
+    else:
+        target_folder = os.getcwd()
 
     if args.visible:
         run_headless = False
@@ -212,8 +280,6 @@ the script is to run. Press control-C to cancel.
 
     start_time = datetime.datetime.now()
 
-    # Read the CSV.
-
     # Open the csv and read the URLs into our queue.
     urls = multiprocessing.Queue()
     with open(args.csvfile, "r") as f:
@@ -234,13 +300,13 @@ the script is to run. Press control-C to cancel.
     # These are the webdrivers that process our downloads.
     drivers = multiprocessing.Queue()
     for j in range(0, simultaneous_sessions):
-        drivers.put(setUpWebdriver(run_headless))
+        drivers.put(setUpWebdriver(run_headless, target_folder))
 
     # Sign in all the webdrivers
     # Need Manager to keep track of them so we can requeue them.
-    manager = multiprocessing.Manager()
-    return_list = manager.list()
-    sign_ins = []
+    login_manager = multiprocessing.Manager()
+    return_list = login_manager.list()
+    sign_in_jobs = []
     for i in range(0, simultaneous_sessions):
         # Creating processes that will run in parallel.
         p = multiprocessing.Process(
@@ -248,10 +314,10 @@ the script is to run. Press control-C to cancel.
             args=(drivers, username, password, return_list),
         )
         # Track them so we can stop them later.
-        sign_ins.append(p)
+        sign_in_jobs.append(p)
         # Run the processes.
         p.start()
-    for x in sign_ins:
+    for x in sign_in_jobs:
         # Closes out the processes cleanly.
         x.join()
 
@@ -260,15 +326,15 @@ the script is to run. Press control-C to cancel.
         drivers.put(d)
 
     # Run the download processes.
+    # Using a Manager to keep track of which ones failed.
+    fail_manager = multiprocessing.Manager()
+    failed_courses = fail_manager.list()
     processes = []
     for n in range(0, simultaneous_sessions):
         # Creating processes that will run in parallel.
         p = multiprocessing.Process(
             target=getDownloads,
-            args=(
-                drivers,
-                urls,
-            ),
+            args=(drivers, urls, failed_courses),
         )
         # Track them so we can stop them later.
         processes.append(p)
@@ -277,6 +343,11 @@ the script is to run. Press control-C to cancel.
     for x in processes:
         # Closes out the processes cleanly.
         x.join()
+
+    print(failed_courses)
+    log("Processed " + str(num_classes - len(skipped_classes)) + " courses")
+    end_time = datetime.datetime.now()
+    log("in " + str(end_time - start_time).split(".")[0])
 
 
 if __name__ == "__main__":
