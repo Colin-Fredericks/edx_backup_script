@@ -86,6 +86,28 @@ def setUpWebdriver(run_headless, target_folder):
     driver = webdriver.Chrome(options=op)
     driver.implicitly_wait(5)
 
+    # Other potential downloady things:
+    # https://stackoverflow.com/questions/57599776/download-file-through-google-chrome-in-headless-mode
+    # options = Options()
+    # options.add_argument("--headless")
+    # options.add_argument("--start-maximized")
+    # options.add_argument("--no-sandbox")
+    # options.add_argument("--disable-extensions")
+    # options.add_argument('--disable-dev-shm-usage')
+    # options.add_argument("--disable-gpu")
+    # options.add_argument('--disable-software-rasterizer')
+    # options.add_argument("user-agent=Mozilla/5.0 (Windows Phone 10.0; Android 4.2.1; Microsoft; Lumia 640 XL LTE) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Mobile Safari/537.36 Edge/12.10166")
+    # options.add_argument("--disable-notifications")
+    #
+    # options.add_experimental_option("prefs", {
+    #     "download.default_directory": "C:\\link\\to\\folder",
+    #     "download.prompt_for_download": False,
+    #     "download.directory_upgrade": True,
+    #     "safebrowsing_for_trusted_sources_enabled": False,
+    #     "safebrowsing.enabled": False
+    #     }
+    # )
+    #
     # Allow headless browsers to download things.
     # Code from https://stackoverflow.com/questions/52830115/python-selenium-headless-download
     driver.command_executor._commands["send_command"] = (
@@ -94,7 +116,7 @@ def setUpWebdriver(run_headless, target_folder):
     )
     params = {
         "cmd": "Page.setDownloadBehavior",
-        "params": {"behavior": "allow", "downloadPath": download_dir},
+        "params": {"behavior": "allow", "downloadPath": target_folder},
     }
     driver.execute("send_command", params)
 
@@ -144,7 +166,8 @@ def signInAll(drivers, username, password, return_list):
     while not drivers.empty():
         d = drivers.get()
         signIn(d, username, password)
-    return_list.append(d)
+        return_list.append(d)
+    return return_list
 
 
 # Runs the loop that processes things.
