@@ -10,7 +10,7 @@ Because course exports can range in size from a few MB to a few hundred, you sho
 
 This repo includes a Mac version of the [Chrome webdriver](https://chromedriver.chromium.org/), which is licensed under the a [separate set of terms](https://chromium.googlesource.com/chromium/src/+/HEAD/LICENSE). If you need a different version of the driver you'll have to replace that file (using the same name).
 
-Since chromedriver is not a signed Mac application it will throw a warning the first time you run it. Go to System Preferences --> Security and Privacy and tell it to open anyway. You should be able to
+Since chromedriver is not a signed Mac application it will throw a warning the first time you run it. Go to System Preferences --> Security and Privacy and tell it to open anyway. You should be able to run it just fine on the next attempt.
 
 ## Instructions
 
@@ -25,7 +25,7 @@ To install and use for the first time:
     (edxbackup) $>
 
     # install requirements
-    (edxbackup) $> cd hx_util
+    (edxbackup) $> cd edx_backup_script
     (edxbackup) $> pip3 install -r requirements.txt
 
     # install edx_backup_script
