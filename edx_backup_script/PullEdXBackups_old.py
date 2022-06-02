@@ -20,7 +20,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 instructions = """
 to run:
-python3 ReplaceEdXStaff.py filename.csv
+python3 PullEdXBackups.py filename.csv
 
 The csv file must have these headers/columns:
 Course - course name or identifier (optional)

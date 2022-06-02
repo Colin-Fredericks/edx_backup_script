@@ -62,7 +62,7 @@ setup(
     packages=find_packages(exclude=["tests*"]),
     entry_points={
         "console_scripts": [
-            "{}={}.ReplaceEdXStaff:PullEdXBackups".format(project_name, project_name),
+            "{}={}.PullEdXBackups:PullEdXBackups".format(project_name, project_name),
         ]
     },
     data_files=[("webdriver", ["edx_backup_script/chromedriver"])],

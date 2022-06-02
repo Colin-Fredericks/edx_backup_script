@@ -1,0 +1,4 @@
+
+.DS_Store
+edx_backup_script.egg-info/*
+build/*
