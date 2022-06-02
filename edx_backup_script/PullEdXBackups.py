@@ -5,7 +5,6 @@ import os
 import csv
 import sys
 import time
-import random
 import logging
 import datetime
 import argparse
@@ -39,6 +38,9 @@ Options:
 This script also creates a second CSV file, missing_exports.csv,
 which shows which courses couldn't be accessed.
 """
+
+# Keeping track of the webdrivers.
+all_drivers = {}
 
 # Prep the logger
 logger = logging.getLogger(__name__)
@@ -110,20 +112,20 @@ def setUpWebdriver(run_headless, target_folder):
     #
     # Allow headless browsers to download things.
     # Code from https://stackoverflow.com/questions/52830115/python-selenium-headless-download
-    driver.command_executor._commands["send_command"] = (
-        "POST",
-        "/session/$sessionId/chromium/send_command",
-    )
-    params = {
-        "cmd": "Page.setDownloadBehavior",
-        "params": {"behavior": "allow", "downloadPath": target_folder},
-    }
-    driver.execute("send_command", params)
+    # driver.command_executor._commands["send_command"] = (
+    #     "POST",
+    #     "/session/$sessionId/chromium/send_command",
+    # )
+    # params = {
+    #     "cmd": "Page.setDownloadBehavior",
+    #     "params": {"behavior": "allow", "downloadPath": target_folder},
+    # }
+    # driver.execute("send_command", params)
 
     return driver
 
 
-def signIn(driver, username, password):
+def signIn(id, username, password):
 
     # Locations
     login_page = "https://authn.edx.org/login"
@@ -133,16 +135,20 @@ def signIn(driver, username, password):
 
     # Open the edX sign-in page
     log("Logging in...")
-    driver.get(login_page)
+    all_drivers[id].get(login_page)
 
     # Sign in
-    username_field = driver.find_elements(By.CSS_SELECTOR, username_input_css)[0]
+    username_field = all_drivers[id].find_elements(By.CSS_SELECTOR, username_input_css)[
+        0
+    ]
     username_field.clear()
     username_field.send_keys(username)
-    password_field = driver.find_elements(By.CSS_SELECTOR, password_input_css)[0]
+    password_field = all_drivers[id].find_elements(By.CSS_SELECTOR, password_input_css)[
+        0
+    ]
     password_field.clear()
     password_field.send_keys(password)
-    login_button = driver.find_elements(By.CSS_SELECTOR, login_button_css)[0]
+    login_button = all_drivers[id].find_elements(By.CSS_SELECTOR, login_button_css)[0]
     login_button.click()
 
     # Check to make sure we're signed in
@@ -152,28 +158,25 @@ def signIn(driver, username, password):
         )
     except:
         driver.close()
-        if "Forbidden" in driver.title:
+        if "Forbidden" in all_drivers[id].title:
             sys.exit("403: Forbidden")
-        if "Login" in driver.title:
+        if "Login" in all_drivers[id].title:
             sys.exit("Took too long to log in.")
         sys.exit("Could not log into edX or course dashboard page timed out.")
 
     log("Logged in.")
-    return
 
 
-def signInAll(drivers, username, password, return_list):
+def signInAll(ids, username, password, return_list):
     while not drivers.empty():
-        d = drivers.get()
-        signIn(d, username, password)
-        return_list.append(d)
+        id = ids.get()
+        signIn(id, username, password)
+        return_list.append(id)
     return return_list
 
 
 # Runs the loop that processes things.
-# In this example it just waits a random amount of time,
-# to simulate projects taking different amounts of time.
-def getDownloads(drivers, urls, failed_courses):
+def getDownloads(ids, urls, failed_courses):
 
     make_export_button_css = "a.action-export"
     download_export_button_css = "a#download-exported-button"
@@ -183,7 +186,8 @@ def getDownloads(drivers, urls, failed_courses):
     while not urls.empty():
         # Pull a URL and driver off their queues.
         url = urls.get()
-        d = drivers.get()
+        id = ids.get()
+        d = all_drivers[id]
         print("Starting work on " + url)
 
         # Open the URL
@@ -199,7 +203,7 @@ def getDownloads(drivers, urls, failed_courses):
             log(repr(e), "DEBUG")
             log("Couldn't open " + url)
             failed_courses.append(url)
-            drivers.put(d)
+            ids.put(id)
             continue
 
         # Click the "export course content" button.
@@ -220,7 +224,7 @@ def getDownloads(drivers, urls, failed_courses):
             log(repr(e), "DEBUG")
             log("Timed out on " + url)
             failed_courses.append(url)
-            drivers.put(d)
+            ids.put(id)
             continue
 
         # Wait to see if the export processes.
@@ -236,10 +240,13 @@ def getDownloads(drivers, urls, failed_courses):
         # Wait for the export to be done.
 
         # When the webdriver is ready again, put it back on its queue.
-        drivers.put(d)
+        ids.put(id)
 
     print("URL queue empty.")
-    d.quit()
+    # Shut down all the webdrivers.
+    for d in iter(drivers.get, None):
+        d.quit()
+
     return True
 
 
@@ -249,7 +256,8 @@ def PullEdXBackups():
     num_backups_successful = 0
     skipped_classes = []
     run_headless = True
-    simultaneous_sessions = multiprocessing.cpu_count() - 1
+    simultaneous_sessions = 2
+    # TODO: replace with max(multiprocessing.cpu_count() - 2, 1)
 
     # Read in command line arguments.
     parser = argparse.ArgumentParser(usage=instructions, add_help=False)
@@ -298,8 +306,8 @@ This user must have Admin status on all courses in which
 the script is to run. Press control-C to cancel.
 """
     )
-    username = input("User e-mail address: ")
-    password = getpass()
+    # username = input("User e-mail address: ")
+    # password = getpass()
 
     start_time = datetime.datetime.now()
 
@@ -320,10 +328,11 @@ the script is to run. Press control-C to cancel.
 
             urls.put(each_row["URL"])
 
-    # These are the webdrivers that process our downloads.
-    drivers = multiprocessing.Queue()
-    for j in range(0, simultaneous_sessions):
-        drivers.put(setUpWebdriver(run_headless, target_folder))
+    # Multiprocessing requires "pickling" the objects you send it.
+    # You can't pickle webdrivers, so we're tracking them by ID here.
+    driver_queue = multiprocessing.Queue()
+    driver_ids = list(range(simultaneous_sessions))
+    all_drivers = {i: setUpWebdriver(run_headless, target_folder) for i in driver_ids}
 
     # Sign in all the webdrivers
     # Need Manager to keep track of them so we can requeue them.
@@ -334,7 +343,7 @@ the script is to run. Press control-C to cancel.
         # Creating processes that will run in parallel.
         p = multiprocessing.Process(
             target=signInAll,
-            args=(drivers, username, password, return_list),
+            args=(driver_ids, username, password, return_list),
         )
         # Track them so we can stop them later.
         sign_in_jobs.append(p)
@@ -345,8 +354,8 @@ the script is to run. Press control-C to cancel.
         x.join()
 
     # Now that the drivers are signed in we need to put them back in the queue.
-    for d in return_list:
-        drivers.put(d)
+    for id in return_list:
+        driver_ids.put(id)
 
     # Run the download processes.
     # Using a Manager to keep track of which ones failed.
@@ -357,7 +366,7 @@ the script is to run. Press control-C to cancel.
         # Creating processes that will run in parallel.
         p = multiprocessing.Process(
             target=getDownloads,
-            args=(drivers, urls, failed_courses),
+            args=(driver_ids, urls, failed_courses),
         )
         # Track them so we can stop them later.
         processes.append(p)
@@ -367,8 +376,8 @@ the script is to run. Press control-C to cancel.
         # Closes out the processes cleanly.
         x.join()
 
-    print(failed_courses)
-    log("Processed " + str(num_classes - len(skipped_classes)) + " courses")
+    # print(failed_courses)
+    # log("Processed " + str(num_classes - len(skipped_classes)) + " courses")
     end_time = datetime.datetime.now()
     log("in " + str(end_time - start_time).split(".")[0])
 
