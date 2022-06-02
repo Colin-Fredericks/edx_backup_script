@@ -96,3 +96,53 @@
 2022-06-02 15:29:22,462 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
 2022-06-02 15:29:24,812 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
 2022-06-02 15:29:26,075 : edx_backup_script.PullEdXBackups  : log : INFO : in 0:00:03
+2022-06-02 16:05:34,255 : edx_backup_script.PullEdXBackups  : log : INFO : Opening csv file.
+2022-06-02 16:05:34,255 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:05:39,666 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:07:43,278 : edx_backup_script.PullEdXBackups  : log : INFO : Opening csv file.
+2022-06-02 16:07:43,281 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:07:45,444 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:07:46,798 : edx_backup_script.PullEdXBackups  : log : INFO : in 0:00:03
+2022-06-02 16:09:22,272 : edx_backup_script.PullEdXBackups  : log : INFO : Opening csv file.
+2022-06-02 16:09:22,272 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:09:24,410 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:11:43,979 : edx_backup_script.PullEdXBackups  : log : INFO : Opening csv file.
+2022-06-02 16:11:43,980 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:11:46,234 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:11:47,551 : edx_backup_script.PullEdXBackups  : log : INFO : in 0:00:03
+2022-06-02 16:14:31,987 : edx_backup_script.PullEdXBackups  : log : INFO : Opening csv file.
+2022-06-02 16:14:31,988 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:14:34,144 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:14:35,485 : edx_backup_script.PullEdXBackups  : log : INFO : in 0:00:03
+2022-06-02 16:17:02,749 : edx_backup_script.PullEdXBackups  : log : INFO : Opening csv file.
+2022-06-02 16:17:02,751 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:17:04,956 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:17:06,297 : edx_backup_script.PullEdXBackups  : log : INFO : in 0:00:03
+2022-06-02 16:21:45,731 : edx_backup_script.PullEdXBackups  : log : INFO : Opening csv file.
+2022-06-02 16:21:45,733 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:21:47,882 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:21:49,116 : edx_backup_script.PullEdXBackups  : log : INFO : Logging in...
+2022-06-02 16:21:49,116 : edx_backup_script.PullEdXBackups  : log : INFO : Logging in...
+2022-06-02 16:24:20,114 : edx_backup_script.PullEdXBackups  : log : INFO : Opening csv file.
+2022-06-02 16:24:20,116 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:24:22,262 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 16:24:23,452 : edx_backup_script.PullEdXBackups  : log : INFO : Logging in...
+2022-06-02 16:24:23,452 : edx_backup_script.PullEdXBackups  : log : INFO : Logging in...
+2022-06-02 17:01:40,745 : edx_backup_script.PullEdXBackups  : log : INFO : Opening csv file.
+2022-06-02 17:01:40,746 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 17:01:43,261 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 17:02:51,322 : edx_backup_script.PullEdXBackups  : log : INFO : Opening csv file.
+2022-06-02 17:02:51,323 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 17:02:53,489 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 17:04:15,121 : edx_backup_script.PullEdXBackups  : log : INFO : Opening csv file.
+2022-06-02 17:04:15,122 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 17:04:17,505 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 17:06:26,198 : edx_backup_script.PullEdXBackups  : log : INFO : Opening csv file.
+2022-06-02 17:06:26,199 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 17:06:30,107 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 17:26:58,316 : edx_backup_script.PullEdXBackups  : log : INFO : Opening csv file.
+2022-06-02 17:26:58,317 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 17:27:00,767 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 17:42:45,339 : edx_backup_script.PullEdXBackups  : log : INFO : Opening csv file.
+2022-06-02 17:42:45,340 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.
+2022-06-02 17:42:47,719 : edx_backup_script.PullEdXBackups  : log : INFO : Setting up webdriver.

@@ -39,8 +39,7 @@ This script also creates a second CSV file, missing_exports.csv,
 which shows which courses couldn't be accessed.
 """
 
-# Keeping track of the webdrivers.
-all_drivers = {}
+# TODO: Rename the export files to useful things.
 
 # Prep the logger
 logger = logging.getLogger(__name__)
@@ -153,7 +152,7 @@ def signIn(id, username, password):
 
     # Check to make sure we're signed in
     try:
-        found_dashboard = WebDriverWait(driver, 10).until(
+        found_dashboard = WebDriverWait(all_drivers[id], 10).until(
             EC.title_contains("Dashboard")
         )
     except:
@@ -168,8 +167,12 @@ def signIn(id, username, password):
 
 
 def signInAll(ids, username, password, return_list):
-    while not drivers.empty():
+
+    while not ids.empty():
         id = ids.get()
+        print("id: " + str(id))
+        print("all drivers: " + str(all_drivers))
+        print("this driver: " + str(all_drivers[id]))
         signIn(id, username, password)
         return_list.append(id)
     return return_list
@@ -177,6 +180,8 @@ def signInAll(ids, username, password, return_list):
 
 # Runs the loop that processes things.
 def getDownloads(ids, urls, failed_courses):
+
+    print("Getting downloads")
 
     make_export_button_css = "a.action-export"
     download_export_button_css = "a#download-exported-button"
@@ -187,12 +192,11 @@ def getDownloads(ids, urls, failed_courses):
         # Pull a URL and driver off their queues.
         url = urls.get()
         id = ids.get()
-        d = all_drivers[id]
         print("Starting work on " + url)
 
         # Open the URL
         try:
-            WebDriverWait(driver, 10).until(
+            WebDriverWait(all_drivers[id], 10).until(
                 EC.visibility_of_element_located(
                     (By.CSS_SELECTOR, make_export_button_css)
                 )
@@ -207,7 +211,7 @@ def getDownloads(ids, urls, failed_courses):
             continue
 
         # Click the "export course content" button.
-        export_course_button = driver.find_elements(
+        export_course_button = all_drivers[id].find_elements(
             By.CSS_SELECTOR, make_export_button_css
         )
         export_course_button[0].click()
@@ -229,7 +233,7 @@ def getDownloads(ids, urls, failed_courses):
 
         # Wait to see if the export processes.
         #   If it does, download the file.
-        download_course_button = driver.find_elements(
+        download_course_button = all_drivers[id].find_elements(
             By.CSS_SELECTOR, download_export_button_css
         )
         download_course_button[0].click()
@@ -237,15 +241,17 @@ def getDownloads(ids, urls, failed_courses):
 
         print("Downloading export from " + url)
 
-        # Wait for the export to be done.
-
         # When the webdriver is ready again, put it back on its queue.
         ids.put(id)
 
     print("URL queue empty.")
     # Shut down all the webdrivers.
-    for d in iter(drivers.get, None):
-        d.quit()
+    # TODO: DON'T SHUT DOWN IF THERE'S STILL STUFF DOWNLOADING.
+    # Do we just want to wait 5 minutes or something? Not the best approach.
+    # Get filename from download link? It's in the href buried in
+    # %20filename%3D%22course.(identifier).tar.gz%22&amp; , doesn't seem super-stable.
+    for i in iter(ids.get, None):
+        all_drivers[i].quit()
 
     return True
 
@@ -306,8 +312,8 @@ This user must have Admin status on all courses in which
 the script is to run. Press control-C to cancel.
 """
     )
-    # username = input("User e-mail address: ")
-    # password = getpass()
+    username = input("User e-mail address: ")
+    password = getpass()
 
     start_time = datetime.datetime.now()
 
@@ -330,9 +336,12 @@ the script is to run. Press control-C to cancel.
 
     # Multiprocessing requires "pickling" the objects you send it.
     # You can't pickle webdrivers, so we're tracking them by ID here.
-    driver_queue = multiprocessing.Queue()
+    driver_id_queue = multiprocessing.Queue()
     driver_ids = list(range(simultaneous_sessions))
+    for id in driver_ids:
+        driver_id_queue.put(id)
     all_drivers = {i: setUpWebdriver(run_headless, target_folder) for i in driver_ids}
+    print(str(all_drivers))
 
     # Sign in all the webdrivers
     # Need Manager to keep track of them so we can requeue them.
@@ -343,7 +352,7 @@ the script is to run. Press control-C to cancel.
         # Creating processes that will run in parallel.
         p = multiprocessing.Process(
             target=signInAll,
-            args=(driver_ids, username, password, return_list),
+            args=(driver_id_queue, username, password, return_list),
         )
         # Track them so we can stop them later.
         sign_in_jobs.append(p)
@@ -366,7 +375,7 @@ the script is to run. Press control-C to cancel.
         # Creating processes that will run in parallel.
         p = multiprocessing.Process(
             target=getDownloads,
-            args=(driver_ids, urls, failed_courses),
+            args=(driver_id_queue, urls, failed_courses),
         )
         # Track them so we can stop them later.
         processes.append(p)

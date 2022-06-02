@@ -2,3 +2,4 @@
 .DS_Store
 edx_backup_script.egg-info/*
 build/*
+edx_backup.log
