@@ -41,6 +41,8 @@ which shows which courses couldn't be accessed.
 
 # TODO: Rename the export files to useful things.
 
+all_drivers = {}
+
 # Prep the logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -256,15 +258,7 @@ def getDownloads(ids, urls, failed_courses):
     return True
 
 
-def PullEdXBackups():
-
-    num_classes = 0
-    num_backups_successful = 0
-    skipped_classes = []
-    run_headless = True
-    simultaneous_sessions = 2
-    # TODO: replace with max(multiprocessing.cpu_count() - 2, 1)
-
+def readArgs():
     # Read in command line arguments.
     parser = argparse.ArgumentParser(usage=instructions, add_help=False)
     parser.add_argument("-h", "--help", action="store_true")
@@ -303,23 +297,13 @@ def PullEdXBackups():
         simultaneous_sessions = max(1, simultaneous_sessions)
     print("Running with " + str(simultaneous_sessions) + " sessions.")
 
-    # Prompt for username and password
-    # TODO: Maybe allow a file to read username and pw from.
-    print(
-        """
-This script requires a username and password to run.
-This user must have Admin status on all courses in which
-the script is to run. Press control-C to cancel.
-"""
-    )
-    username = input("User e-mail address: ")
-    password = getpass()
+    return target_folder, simultaneous_sessions, run_headless, args.csvfile
 
-    start_time = datetime.datetime.now()
 
-    # Open the csv and read the URLs into our queue.
+# Open the csv and read the URLs into our queue.
+def makeURLQueue(csvfile):
     urls = multiprocessing.Queue()
-    with open(args.csvfile, "r") as f:
+    with open(csvfile, "r") as f:
         log("Opening csv file.")
         reader = csv.DictReader(f)
 
@@ -333,6 +317,36 @@ the script is to run. Press control-C to cancel.
                 continue
 
             urls.put(each_row["URL"])
+
+
+def PullEdXBackups():
+
+    global all_drivers
+    num_classes = 0
+    num_backups_successful = 0
+    skipped_classes = []
+    run_headless = True
+    simultaneous_sessions = 2
+    # TODO: replace with max(multiprocessing.cpu_count() - 2, 1)
+
+    target_folder, simultaneous_sessions, run_headless, csvfile = readArgs()
+
+    # Open the csv and read the URLs into a multiprocessing queue.
+    urls = makeURLQueue(csvfile)
+
+    # Prompt for username and password
+    # TODO: Maybe allow a file to read username and pw from.
+    print(
+        """
+This script requires a username and password to run.
+This user must have Admin status on all courses in which
+the script is to run. Press control-C to cancel.
+"""
+    )
+    username = input("User e-mail address: ")
+    password = getpass()
+
+    start_time = datetime.datetime.now()
 
     # Multiprocessing requires "pickling" the objects you send it.
     # You can't pickle webdrivers, so we're tracking them by ID here.

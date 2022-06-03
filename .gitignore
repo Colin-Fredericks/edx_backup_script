@@ -3,3 +3,5 @@
 edx_backup_script.egg-info/*
 build/*
 edx_backup.log
+edx_backup.log
+*.log
