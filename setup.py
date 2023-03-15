@@ -65,7 +65,10 @@ setup(
             "{}={}.PullEdXBackups:PullEdXBackups".format(project_name, project_name),
         ]
     },
-    data_files=[("webdriver", ["edx_backup_script/chromedriver"])],
+    data_files=[
+        ("webdriver", ["edx_backup_script/chromedriver"]),
+        ("geckodriver", ["edx_backup_script/geckodriver"])
+    ],
     include_package_data=True,
     install_requires=requirements,
     zip_safe=False,
