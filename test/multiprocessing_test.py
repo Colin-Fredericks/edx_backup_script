@@ -8,7 +8,7 @@ import multiprocessing
 def ye_function(inputs, tools):
     # As long as there's something in the input queue,
     while not inputs.empty():
-        # Pull an input and tool off their queues.
+        # Pull an input and a tool off their queues.
         i = inputs.get()
         t = tools.get()
         print("Tool " + t + " starting work on " + str(i))
@@ -23,14 +23,15 @@ def ye_function(inputs, tools):
 
 def run():
     # This is our data. Could be URLs to visit.
-    input_list = multiprocessing.Queue()
+    input_queue = multiprocessing.Queue()
     for i in range(0, 20):
-        input_list.put("project " + str(i))
+        input_queue.put("project " + str(i))
 
     # These are tools that process the data. Could be webdrivers.
-    tool_list = multiprocessing.Queue()
-    for j in ["A", "B", "C", "D", "E"]:
-        tool_list.put("tool " + str(j))
+    tool_queue = multiprocessing.Queue()
+    tool_list = ["A", "B", "C", "D", "E"]
+    for j in tool_list:
+        tool_queue.put("tool " + str(j))
 
     # Spin up several processes, but not more than we have tools.
     # Leave some CPU for other people.
@@ -42,8 +43,8 @@ def run():
         p = multiprocessing.Process(
             target=ye_function,
             args=(
-                input_list,
-                tool_list,
+                input_queue,
+                tool_queue,
             ),
         )
         # Track them so we can stop them later.

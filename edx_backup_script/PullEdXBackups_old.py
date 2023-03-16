@@ -8,37 +8,48 @@ import time
 import logging
 import datetime
 import argparse
+import multiprocessing
 from getpass import getpass
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.options import Options as ChromeOptions
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# TODO: Better tracking of what we had to skip.
-
 instructions = """
 to run:
-python3 PullEdXBackups.py filename.csv
+python3 PullEdXBackups.py (options) filename.csv
 
-The csv file must have these headers/columns:
-Course - course name or identifier (optional)
-URL - the address of class' Course Team Settings page
-Add - the e-mail addresses of the staff to be added. (not usernames)
-      If there are multiple staff, space-separate them.
-Promote - promote these people to Admin status
-Remove - just like "Add"
-Demote - removes Admin status
+This script accesses multiple courses' Export pages
+to download .tar.gz files for backup purposes.
 
-The output is another CSV file that shows which courses couldn't be accessed
-and which people couldn't be removed.
+The csv file only needs one header:
+URL - the address of class' Export page
+
+Options:
+-h, --help     Print this message and exit.
+-o, --output   Sets the folder where the course exports will be saved.
+               Defaults to the current directory.
+-s, -sessions  Sets the number of simultaneous sessions.
+               Minimum 1, max and default of CPU count - 1.
+-v, --visible  Runs the browser in regular mode instead of headless.
+-b --browser   Options are "chrome" and "firefox".
+
+This script also creates a second CSV file, missing_exports.csv,
+which shows which courses couldn't be accessed.
 """
+
+# TODO: Rename the export files to useful things.
+# Use the course ID.
+
+all_drivers = {}
 
 # Prep the logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-handler = logging.FileHandler("edx_staffing.log")
+handler = logging.FileHandler("edx_backup.log")
 formatter = logging.Formatter(
     "%(asctime)s : %(name)s  : %(funcName)s : %(levelname)s : %(message)s"
 )
@@ -62,73 +73,83 @@ def log(text, level="INFO"):
 
 
 # Instantiating a headless Chrome browser
-def setUpWebdriver(run_headless):
-    log("Setting up webdriver.")
-    os.environ["PATH"] = os.environ["PATH"] + os.pathsep + os.path.dirname(__file__)
-    op = Options()
+def setUpChromeDriver(run_headless, target_folder):
+    log("Setting up Chrome webdriver.")
+    op = ChromeOptions()
     if run_headless:
         op.add_argument("--headless")
+    op.add_experimental_option(
+        "prefs",
+        {
+            "download.default_directory": target_folder,
+            "download.prompt_for_download": False,
+            "download.directory_upgrade": True,
+            "safebrowsing_for_trusted_sources_enabled": False,
+            "safebrowsing.enabled": False,
+        },
+    )
     driver = webdriver.Chrome(options=op)
-    driver.implicitly_wait(1)
+    driver.implicitly_wait(5)
+
+    # Other potential downloady things:
+    # https://stackoverflow.com/questions/57599776/download-file-through-google-chrome-in-headless-mode
+    # options = Options()
+    # options.add_argument("--headless")
+    # options.add_argument("--start-maximized")
+    # options.add_argument("--no-sandbox")
+    # options.add_argument("--disable-extensions")
+    # options.add_argument('--disable-dev-shm-usage')
+    # options.add_argument("--disable-gpu")
+    # options.add_argument('--disable-software-rasterizer')
+    # options.add_argument("user-agent=Mozilla/5.0 (Windows Phone 10.0; Android 4.2.1; Microsoft; Lumia 640 XL LTE) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Mobile Safari/537.36 Edge/12.10166")
+    # options.add_argument("--disable-notifications")
+    #
+    # options.add_experimental_option("prefs", {
+    #     "download.default_directory": "C:\\link\\to\\folder",
+    #     "download.prompt_for_download": False,
+    #     "download.directory_upgrade": True,
+    #     "safebrowsing_for_trusted_sources_enabled": False,
+    #     "safebrowsing.enabled": False
+    #     }
+    # )
+    #
+    # Allow headless browsers to download things.
+    # Code from https://stackoverflow.com/questions/52830115/python-selenium-headless-download
+    # driver.command_executor._commands["send_command"] = (
+    #     "POST",
+    #     "/session/$sessionId/chromium/send_command",
+    # )
+    # params = {
+    #     "cmd": "Page.setDownloadBehavior",
+    #     "params": {"behavior": "allow", "downloadPath": target_folder},
+    # }
+    # driver.execute("send_command", params)
+
     return driver
 
 
-def userIsPresent(driver, email):
-    user_present_css = "li[data-email='" + email.lower() + "']"
-    user_present = driver.find_elements(By.CSS_SELECTOR, user_present_css)
-    if len(user_present) > 0:
-        return True
+def setUpFirefoxDriver(run_headless, target_folder):
+    log("Setting up Firefox webdriver.")
+    op = FirefoxOptions()
+    if run_headless:
+        op.add_argument("--headless")
+    driver = webdriver.Firefox(options=op)
+    driver.implicitly_wait(5)
+    return driver
+
+
+def setUpWebDriver(run_headless, target_folder, browser):
+    os.environ["PATH"] = os.environ["PATH"] + os.pathsep + os.path.dirname(__file__)
+    if browser == "chrome":
+        return setUpChromeDriver(run_headless, target_folder)
+    elif browser == "firefox":
+        return setUpFirefoxDriver(run_headless, target_folder)
     else:
-        return False
+        log("Browser not supported.", "ERROR")
+        sys.exit()
 
 
-def userIsStaff(driver, email):
-    staff_user_css = "li[data-email='" + email.lower() + "'] span.flag-role-staff"
-    staff_flag = driver.find_elements(By.CSS_SELECTOR, staff_user_css)
-    if len(staff_flag) > 0:
-        return True
-    else:
-        return False
-
-
-def userIsAdmin(driver, email):
-    admin_user_css = "li[data-email='" + email.lower() + "'] span.flag-role-instructor"
-    admin_flag = driver.find_elements(By.CSS_SELECTOR, admin_user_css)
-    if len(admin_flag) > 0:
-        return True
-    else:
-        return False
-
-
-# Returns info about the dialog.
-# If there was none, it's "no_dialog"
-# If we closed it and they weren't a user, it's "no_user"
-# If we couldn't close the dialog, it's "failed_to_close"
-def closeErrorDialog(driver):
-
-    # Try to find the "ok" button for the error dialogs.
-    wrong_email_css = "#prompt-error.is-shown button.action-primary"
-    wrong_email_ok_button = driver.find_elements(By.CSS_SELECTOR, wrong_email_css)
-
-    # If there is an error dialog open, report why, clear it, and move on.
-    if len(wrong_email_ok_button) > 0:
-        log("error dialog open")
-        try:
-            # No user with specified e-mail address.
-            wrong_email_ok_button[0].click()
-            return {"reason": "no_user"}
-        except Exception as e:
-            # Couldn't close the error dialog.
-            # log(repr(e), "DEBUG")
-            log("Could not close error dialog for " + driver.title, "WARNING")
-            return {"reason": "failed_to_close"}
-    # If there's no error dialog, we were successful. Move on.
-    else:
-        # No error dialog
-        return {"reason": "no_dialog"}
-
-
-def signIn(driver, username, password):
+def signIn(id, username, password):
 
     # Locations
     login_page = "https://authn.edx.org/login"
@@ -138,283 +159,204 @@ def signIn(driver, username, password):
 
     # Open the edX sign-in page
     log("Logging in...")
-    driver.get(login_page)
+    all_drivers[id].get(login_page)
 
     # Sign in
-    username_field = driver.find_elements(By.CSS_SELECTOR, username_input_css)[0]
+    username_field = all_drivers[id].find_elements(By.CSS_SELECTOR, username_input_css)[
+        0
+    ]
     username_field.clear()
     username_field.send_keys(username)
-    password_field = driver.find_elements(By.CSS_SELECTOR, password_input_css)[0]
+    password_field = all_drivers[id].find_elements(By.CSS_SELECTOR, password_input_css)[
+        0
+    ]
     password_field.clear()
     password_field.send_keys(password)
-    login_button = driver.find_elements(By.CSS_SELECTOR, login_button_css)[0]
+    login_button = all_drivers[id].find_elements(By.CSS_SELECTOR, login_button_css)[0]
     login_button.click()
 
     # Check to make sure we're signed in
     try:
-        found_dashboard = WebDriverWait(driver, 10).until(
+        found_dashboard = WebDriverWait(all_drivers[id], 10).until(
             EC.title_contains("Dashboard")
         )
     except:
         driver.close()
-        if "Forbidden" in driver.title:
+        if "Forbidden" in all_drivers[id].title:
             sys.exit("403: Forbidden")
-        if "Login" in driver.title:
+        if "Login" in all_drivers[id].title:
             sys.exit("Took too long to log in.")
         sys.exit("Could not log into edX or course dashboard page timed out.")
 
     log("Logged in.")
-    return
 
 
-def addStaff(driver, email_list):
+def signInAll(ids, username, password, return_list):
 
-    # Locations for add-staff inputs
-    new_team_css = "a.create-user-button"
-    new_staff_email_css = "input#user-email-input"
-    add_user_css = "div.actions button.action-primary"
+    while not ids.empty():
+        id = ids.get()
+        print("id: " + str(id))
+        print("all drivers: " + str(all_drivers))
+        print("this driver: " + str(all_drivers[id]))
+        signIn(id, username, password)
+        return_list.append(id)
+    return return_list
 
-    # For each address:
-    for email in email_list:
-        success = False
 
-        # If the user is already present, move to the next e-mail address.
-        if userIsPresent(driver, email):
-            log(email + " is already on course team.")
+# Runs the loop that processes things.
+def getDownloads(ids, urls, failed_courses):
+
+    print("Getting downloads")
+
+    make_export_button_css = "a.action-export"
+    download_export_button_css = "a#download-exported-button"
+    wait_for_download_button = 600  # seconds
+
+    # As long as we still have URLs to process,
+    while not urls.empty():
+        # Pull a URL and driver off their queues.
+        url = urls.get()
+        id = ids.get()
+        print("Starting work on " + url)
+
+        # Open the URL
+        try:
+            WebDriverWait(all_drivers[id], 10).until(
+                EC.visibility_of_element_located(
+                    (By.CSS_SELECTOR, make_export_button_css)
+                )
+            )
+        except Exception as e:
+            # If we can't open the URL, make a note, put the driver back,
+            # and move on to the next url.
+            log(repr(e), "DEBUG")
+            log("Couldn't open " + url)
+            failed_courses.append(url)
+            ids.put(id)
             continue
 
-        # Retry up to 3 times.
-        for x in range(0, 3):
-            log("Trying to add " + email)
-
-            try:
-                # Click the "New Team Member" button
-                new_team_buttons = driver.find_elements(By.CSS_SELECTOR, new_team_css)
-                new_team_buttons[0].click()
-            except Exception as e:
-                # If that failed, there could be an error message up. Try to close it.
-                closeErrorDialog(driver)
-
-            try:
-                # Put the e-mail into the input box.
-                email_boxes = driver.find_elements(By.CSS_SELECTOR, new_staff_email_css)
-                email_boxes[0].clear()
-                email_boxes[0].send_keys(email)
-                # Click "Add User"
-                add_user_buttons = driver.find_elements(By.CSS_SELECTOR, add_user_css)
-                add_user_buttons[0].click()
-
-                # Now that we've clicked the add button,
-                # Either the user was added or there's an error dialog.
-                if userIsPresent(driver, email):
-                    # All good.
-                    success = True
-                    break
-                else:
-                    # Clear the dialog and move on to the next e-mail.
-                    closeErrorDialog(driver)
-                    break
-
-            except Exception as e:
-                # If the stuff above failed, it's probably because
-                # one of the elements hasn't been added to the page yet.
-                log("Couldn't add " + email + ", trying again...")
-                # log(repr(e), "DEBUG")
-
-        if success:
-            log("Added " + email)
-        else:
-            log("Could not add " + email)
-            closeErrorDialog(driver)
-
-    return
-
-
-def promoteStaff(driver, email_list):
-
-    # For each address:
-    for email in email_list:
-
-        success = False
-        promotion_css = (
-            "li[data-email='"
-            + email.lower()
-            + "'] a.make-instructor.admin-role.add-admin-role"
+        # Click the "export course content" button.
+        export_course_button = all_drivers[id].find_elements(
+            By.CSS_SELECTOR, make_export_button_css
         )
+        export_course_button[0].click()
 
-        if userIsStaff(driver, email):
-
-            # Keep trying up to 3 times in case we're still loading.
-            for x in range(0, 3):
-                log("Promoting " + email)
-                try:
-                    # Find the promotion button for this user.
-                    promotion_button = driver.find_elements(
-                        By.CSS_SELECTOR, promotion_css
-                    )
-                except:
-                    log(
-                        "No promotion button found. You may not have Admin access. Trying again...",
-                        "WARNING",
-                    )
-                    continue
-                try:
-                    promotion_button[0].click()
-                    success = True
-                    break
-                except Exception as e:
-                    # log(repr(e), "DEBUG")
-                    log("Couldn't click promotion button. Trying again...")
-        else:
-            if userIsAdmin(driver, email):
-                log(email + " is already admin.")
-            else:
-                log(email + " is not in this course. Add them before promoting them.")
-
-        if success:
-            log("Promoted " + email + " to Admin.")
-        else:
-            log("Could not promote " + email)
-
-    return
-
-
-def removeStaff(driver, email_list):
-
-    # The "remove" button is a link inside an LI.
-    # The LI has data-email equal to the user's email address.
-    trash_can_css = "a.remove-user"
-    confirm_removal_css = "#prompt-warning.is-shown button.action-primary"
-
-    # For each address:
-    for email in email_list:
-
-        # If this user isn't present, move on to the next one.
-        if not userIsPresent(driver, email):
-            log(email + " was already not in this course.")
+        try:
+            WebDriverWait(d, wait_for_download_button).until(
+                EC.visibility_of_element_located(
+                    (By.CSS_SELECTOR, download_export_button_css)
+                )
+            )
+        except:
+            # If the download button never appears,
+            # make a note, put the driver back, and move on to the next url.
+            log(repr(e), "DEBUG")
+            log("Timed out on " + url)
+            failed_courses.append(url)
+            ids.put(id)
             continue
 
-        success = False
-        removal_button_css = "li[data-email='" + email.lower() + "'] " + trash_can_css
-
-        for x in range(0, 3):
-            try:
-                # E-mail addresses in the data attribute are lowercased.
-                remove_button = driver.find_elements(
-                    By.CSS_SELECTOR, removal_button_css
-                )
-                # Click the trash can ("remove user" button)
-                remove_button[0].click()
-                # Click the "confirm" button.
-                log("Trying to remove " + email)
-                confirm_button = driver.find_elements(
-                    By.CSS_SELECTOR, confirm_removal_css
-                )
-                confirm_button[0].click()
-                success = True
-                break
-
-            except Exception as e:
-                # log(repr(e), "DEBUG")
-                # Keep trying up to 3 times.
-                log("Trying again...")
-
-        if success:
-            log("Removed " + email)
-        else:
-            log("Could not remove " + email)
-
-    return
-
-
-def demoteStaff(driver, email_list):
-
-    # For each address:
-    for email in email_list:
-
-        success = False
-        demotion_css = (
-            "li[data-email='"
-            + email.lower()
-            + "'] a.make-staff.admin-role.remove-admin-role"
+        # Wait to see if the export processes.
+        #   If it does, download the file.
+        download_course_button = all_drivers[id].find_elements(
+            By.CSS_SELECTOR, download_export_button_css
         )
+        download_course_button[0].click()
+        #   If not, mark this one as a problem and put it on the list.
 
-        if userIsAdmin(driver, email):
+        print("Downloading export from " + url)
 
-            # Keep trying up to 3 times in case we're still loading.
-            for x in range(0, 3):
-                log("Demoting " + email)
-                try:
-                    # Find the demotion button for this user.
-                    demotion_button = driver.find_elements(
-                        By.CSS_SELECTOR, demotion_css
-                    )
-                except:
-                    log(
-                        "Couldn't find demotion button. You may not have Admin access. Trying again...",
-                        "WARNING",
-                    )
-                    continue
-                try:
-                    demotion_button[0].click()
-                    success = True
-                    break
-                except Exception as e:
-                    # log(repr(e), "DEBUG")
-                    log("Couldn't click demotion button. Trying again...")
-        else:
-            if userIsStaff(driver, email):
-                log(email + " is already staff.")
-            else:
-                log(email + " is not in this course.")
+        # When the webdriver is ready again, put it back on its queue.
+        ids.put(id)
 
-        if success:
-            log("Demoted " + email + " to staff.")
-        else:
-            log("Could not demote " + email)
+    print("URL queue empty.")
+    # Shut down all the webdrivers.
+    # TODO: DON'T SHUT DOWN IF THERE'S STILL STUFF DOWNLOADING.
+    # Do we just want to wait 5 minutes or something? Not the best approach.
+    # Get filename from download link? It's in the href buried in
+    # %20filename%3D%22course.(identifier).tar.gz%22&amp; , doesn't seem super-stable.
+    for i in iter(ids.get, None):
+        all_drivers[i].quit()
 
-    return
+    return True
 
 
-#######################
-# Main starts here
-#######################
-
-
-def PullEdXBackups():
-
-    num_classes = 0
-    num_backups_successful = 0
-    skipped_classes = []
-    simultaneous_downloads = 5
-    sessions = []
-    run_headless = True
-    timeouts = 0
-    too_many_timeouts = 3
-
+def readArgs():
     # Read in command line arguments.
     parser = argparse.ArgumentParser(usage=instructions, add_help=False)
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("-v", "--visible", action="store_true")
     parser.add_argument("-o", "--output", action="store")
     parser.add_argument("-s", "--sessions", action="store")
+    parser.add_argument("-b", "--browser", default="chrome")
     parser.add_argument("csvfile", default=None)
 
     args = parser.parse_args()
     if args.help or args.csvfile is None:
         sys.exit(instructions)
 
-    if args.visible:
-        run_headless = False
-
-    if args.sessions:
-        simultaneous_downloads = int(args.sessions)
-
     if not os.path.exists(args.csvfile):
         sys.exit("Input file not found: " + args.csvfile)
 
-    if not os.path.exists(args.output):
-        sys.exit("Output folder not found: " + args.output)
+    #  If there's no output folder specified, use the working directory.
+    if args.output:
+        if not os.path.exists(args.output):
+            sys.exit("Output folder not found: " + args.output)
+        else:
+            target_folder = args.output
+    else:
+        target_folder = os.getcwd()
+
+    if args.visible:
+        run_headless = False
+
+    # Spin up several processes, but not more than we have tools.
+    # Leave some CPU for other people.
+    if args.sessions:
+        try:
+            simultaneous_sessions = int(args.sessions)
+        except:
+            sys.exit("Are you sure you entered a number for the number of sessions?")
+    else:
+        simultaneous_sessions = max(1, simultaneous_sessions)
+    print("Running with " + str(simultaneous_sessions) + " sessions.")
+
+    return target_folder, simultaneous_sessions, run_headless, args.csvfile, browser
+
+
+# Open the csv and read the URLs into our queue.
+def makeURLQueue(csvfile):
+    urls = multiprocessing.Queue()
+    with open(csvfile, "r") as f:
+        log("Opening csv file.")
+        reader = csv.DictReader(f)
+
+        # For each line in the CSV...
+        for each_row in reader:
+            # log("Processing line:", "DEBUG")
+            # log(each_row, "DEBUG")
+
+            # Open the course export URL. Skip lines without one.
+            if each_row["course_id"] == "":
+                continue
+            else:
+                urls.put("https://studio.edx.org/export/" + each_row["course_id"])
+
+
+def PullEdXBackups():
+
+    global all_drivers
+    num_classes = 0
+    num_backups_successful = 0
+    skipped_classes = []
+    run_headless = True
+    simultaneous_sessions = 2
+    # TODO: replace with max(multiprocessing.cpu_count() - 2, 1)
+
+    target_folder, simultaneous_sessions, run_headless, csvfile, browser = readArgs()
+
+    # Open the csv and read the URLs into a multiprocessing queue.
+    urls = makeURLQueue(csvfile)
 
     # Prompt for username and password
     # TODO: Maybe allow a file to read username and pw from.
@@ -430,146 +372,63 @@ the script is to run. Press control-C to cancel.
 
     start_time = datetime.datetime.now()
 
-    # Get a list of dicts from the CSV file.
-    # { "URL": export page URL,
-    #   "checked_out": have we started on this one? (bool),
-    #   "completed": did we successfully get the download? (bool),
-    #   "failed": or did it fail for some reason?  (bool)}
+    # Multiprocessing requires "pickling" the objects you send it.
+    # You can't pickle webdrivers, so we're tracking them by ID here.
+    driver_id_queue = multiprocessing.Queue()
+    driver_ids = list(range(simultaneous_sessions))
+    for id in driver_ids:
+        driver_id_queue.put(id)
+    all_drivers = {
+        i: setUpWebDriver(run_headless, target_folder, browser) for i in driver_ids
+    }
+    print(str(all_drivers))
 
-    course_list = []
-    completed_URLs = []
-    failed_URLs = []
-    each_course = {"URL": "", "checked_out": False, "completed": False, "failed": False}
+    # Sign in all the webdrivers
+    # Need Manager to keep track of them so we can requeue them.
+    login_manager = multiprocessing.Manager()
+    return_list = login_manager.list()
+    sign_in_jobs = []
+    for i in range(0, simultaneous_sessions):
+        # Creating processes that will run in parallel.
+        p = multiprocessing.Process(
+            target=signInAll,
+            args=(driver_id_queue, username, password, return_list),
+        )
+        # Track them so we can stop them later.
+        sign_in_jobs.append(p)
+        # Run the processes.
+        p.start()
+    for x in sign_in_jobs:
+        # Closes out the processes cleanly.
+        x.join()
 
-    # Open the text file and fill out the course list.
+    # Now that the drivers are signed in we need to put them back in the queue.
+    for id in return_list:
+        driver_ids.put(id)
 
-    # Because course exports can take a long time, we're going to
-    # run multiple of them simultaneously. Spin up N webdrivers and log them in.
-    # TODO: Rework this to be asynchronous.
-    for i in range(0, simultaneous_downloads):
-        session[i] = setUpWebdriver(run_headless)
-        signIn(session[i], username, password)
+    # Run the download processes.
+    # Using a Manager to keep track of which ones failed.
+    fail_manager = multiprocessing.Manager()
+    failed_courses = fail_manager.list()
+    processes = []
+    for n in range(0, simultaneous_sessions):
+        # Creating processes that will run in parallel.
+        p = multiprocessing.Process(
+            target=getDownloads,
+            args=(driver_id_queue, urls, failed_courses),
+        )
+        # Track them so we can stop them later.
+        processes.append(p)
+        # Run the processes.
+        p.start()
+    for x in processes:
+        # Closes out the processes cleanly.
+        x.join()
 
-    courses_left = len(course_list)
-    drivers_available = simultaneous_downloads
-
-    # While there are URLs left to visit:
-    #   Check to see if there's an available webdriver.
-    #   If there is:
-    #       Mark that driver as unavailable.
-    #       Send that driver and a URL to an asynch worker.
-    #       When it's done,
-    #           mark that driver as available
-    #           move the URL to the "complete" or "failed" list.
-
-    #################
-    # Old Stuff
-    #################
-
-    # Open the csv and read it to a set of dicts
-    with open(args.csvfile, "r") as file:
-        log("Opening csv file.")
-        reader = csv.DictReader(file)
-
-        # For each line in the CSV...
-        for each_row in reader:
-            # log("Processing line:", "DEBUG")
-            # log(each_row, "DEBUG")
-
-            # Open the URL. Skip lines without one.
-            if each_row["URL"] == "":
-                continue
-
-            num_classes += 1
-            driver.get(each_row["URL"].strip())
-
-            # Check to make sure we've opened a new page.
-            # The e-mail input box should be invisible.
-            try:
-                WebDriverWait(driver, 10).until(
-                    EC.invisibility_of_element_located(
-                        (By.CSS_SELECTOR, "input#user-email-input")
-                    )
-                )
-                timeouts = 0
-            except Exception as e:
-                # log(repr(e), "DEBUG")
-                # If we can't open the URL, make a note and skip this course.
-                skipped_classes.append(each_row)
-                if "Dashboard" in driver.title:
-                    log("Course Team page load timed out for " + each_row["URL"])
-                    skipped_classes.append(each_row)
-                    timeouts += 1
-                    if timeouts >= too_many_timeouts:
-                        log(
-                            str(too_many_timeouts)
-                            + " course pages timed out in a row.",
-                            "WARNING",
-                        )
-                        log(
-                            "Check URLs and internet connectivity and try again.",
-                            "WARNING",
-                        )
-                        break
-                continue
-
-            # Check to make sure we have the ability to change user status.
-            if not userIsAdmin(driver, username):
-                log("\nUser is not admin in " + each_row["URL"])
-                skipped_classes.append(each_row)
-                continue
-
-            if (
-                "Course Team Settings" not in driver.title
-                or "Forbidden" in driver.title
-            ):
-                log("\nCould not open course " + each_row["URL"])
-                skipped_classes.append(each_row)
-                continue
-
-            log("\n" + driver.title)
-            log(each_row["URL"])
-            # Functions to call for each task. As of Python 3.6 they'll stay in this order.
-            jobs = {
-                "Add": addStaff,
-                "Promote": promoteStaff,
-                "Remove": removeStaff,
-                "Demote": demoteStaff,
-            }
-            for j in jobs:
-                if each_row[j] is None:
-                    driver.quit()
-                    log("CSV error - might be missing a column.", "CRITICAL")
-                    continue
-                # Taking out whitespace.
-                # Split e-mail list on spaces and throw out blank elements.
-                email_list_with_blanks = each_row[j].split(" ")
-                email_list = [x for x in email_list_with_blanks if x != ""]
-                if len(each_row[j]) > 0:
-                    jobs[j](driver, email_list)
-                    # You have to wait because I don't even know why.
-                    # Otherwise it skips lines - sometimes up to half of them.
-                    time.sleep(2)
-
-        # Done with the webdriver.
-        driver.quit()
-
-        # Write out a new csv with the ones we couldn't do.
-        if len(skipped_classes) > 0:
-            log("See remaining_courses.csv for courses that had to be skipped.")
-            with open("remaining_courses.csv", "w", newline="") as remaining_courses:
-                fieldnames = ["Course", "URL", "Add", "Promote", "Remove", "Demote"]
-                writer = csv.DictWriter(remaining_courses, fieldnames=fieldnames)
-
-                writer.writeheader()
-                for x in skipped_classes:
-                    writer.writerow(x)
-
-        log("Processed " + str(num_classes - len(skipped_classes)) + " courses")
-        end_time = datetime.datetime.now()
-        log("in " + str(end_time - start_time).split(".")[0])
-
-    # Done.
+    # print(failed_courses)
+    # log("Processed " + str(num_classes - len(skipped_classes)) + " courses")
+    end_time = datetime.datetime.now()
+    log("in " + str(end_time - start_time).split(".")[0])
 
 
 if __name__ == "__main__":
