@@ -4,7 +4,6 @@
 import os
 import csv
 import sys
-import time
 import logging
 import datetime
 import argparse
@@ -92,7 +91,7 @@ def trimLog(log_file="edx_staffing.log", max_lines=20000):
         f.writelines(lines[-max_lines:])
 
 
-# Instantiating a headless Chrome browser
+# Instantiating a headless Chrome or Firefox browser
 def setUpWebdriver(run_headless, driver_choice):
     log("Setting up webdriver.")
     os.environ["PATH"] = os.environ["PATH"] + os.pathsep + os.path.dirname(__file__)
@@ -112,6 +111,7 @@ def setUpWebdriver(run_headless, driver_choice):
     return driver
 
 
+# TODO: Do we actually need this for this script?
 # Returns info about the dialog.
 # If there was none, it's "no_dialog"
 # If we closed it and they weren't a user, it's "no_user"
@@ -260,7 +260,7 @@ def getCourseExport(driver, url):
         )
     except:
         # If the download button never appears,
-        # make a note, put the driver back, and move on to the next url.
+        # make a note and move on to the next url.
         log(repr(e), "DEBUG")
         log("Timed out on " + url)
         return False
@@ -272,6 +272,9 @@ def getCourseExport(driver, url):
     )
     download_course_button[0].click()
     #   If not, mark this one as a problem and put it on the list.
+
+    # TODO: check https://gist.github.com/stefanschmidt/0c35cb275d671014ebe6c1d322518318
+    # Looks like we're mostly on the right track.
 
     log("Downloading export from " + url)
 
