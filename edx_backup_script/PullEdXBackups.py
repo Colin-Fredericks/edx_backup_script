@@ -10,38 +10,34 @@ import argparse
 import traceback
 from getpass import getpass
 from selenium import webdriver
+from watchdog.observers import Observer
+from watchdog.events import LoggingEventHandler
 from selenium.webdriver import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common import exceptions as selenium_exceptions
-from selenium.webdriver.support import expected_conditions as EC
 
 # TODO: Better tracking of what we had to skip.
 
 instructions = """
 to run:
-python3 ReplaceEdXStaff.py filename.csv
+python3 PullEdXBackups.py filename.csv
 
 The csv file must have these headers/columns:
 Course - course name or identifier (optional)
-URL - the address of class' Course Team Settings page
-Add - the e-mail addresses of the staff to be added. (not usernames)
-      If there are multiple staff, space-separate them.
-Promote - promote these people to Admin status
-Remove - just like "Add"
-Demote - removes Admin status
+URL - the address of class' export page. It should look like this:
+      https://studio.edx.org/export/course-v1:HarvardX+CHEM160.en.1x+1T2018
 
-The output is another CSV file that shows which courses couldn't be accessed
-and which people couldn't be removed. If the --list option is used,
-the CSV instead shows who's admin and staff in all courses.
+The output is another CSV file that shows which courses 
+couldn't be accessed or downloaded.
 
 Options:
   -h or --help:    Print this message and exit.
-  -l or --list:    List all staff and admin in all courses. Make no changes.
-                   Only requires the URL column.
+  -f or --firefox: Use Firefox (geckodriver) instead of Chrome.
   -v or --visible: Run the browser in normal mode instead of headless.
 
 """
@@ -183,20 +179,6 @@ def signIn(driver, username, password):
         log("Login button clicked")
 
         # Check to make sure we're signed in.
-        # First, check to see if we're still on the same page, a common fail state.
-
-        """
-        log("Waiting for URL change...")
-        try:
-            url_change = WebDriverWait(driver, 15).until(
-                EC.url_changes(driver.current_url)
-            )
-        except selenium_exceptions.TimeoutException:
-            log("URL didn't change. Trying again.", "WARNING")
-            login_count += 1
-            print("Login attempt count: " + str(login_count))
-            continue
-        """
         # There are several possible fail states to check for.
         found_dashboard = False
         try:
@@ -231,12 +213,26 @@ def signIn(driver, username, password):
     sys.exit("Login issue or course dashboard page timed out.")
 
 
-def getCourseExport(driver, url):
+def getCourseExport(driver, url, last_url):
     make_export_button_css = "a.action-export"
     download_export_button_css = "a#download-exported-button"
     wait_for_download_button = 600  # seconds
 
-    # Open the URL
+    # Open the URL. Wait until the browser's URL changes.
+    log("Opening " + url)
+    driver.get(url)
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.url_changes(last_url)
+        )
+    except Exception as e:
+        # If we can't open the URL, make a note, put the driver back,
+        # and move on to the next url.
+        log(repr(e), "DEBUG")
+        log("Webdriver didn't go anywhere.")
+        return False
+
+    # Now wait for the export button to appear.
     try:
         WebDriverWait(driver, 10).until(
             EC.visibility_of_element_located((By.CSS_SELECTOR, make_export_button_css))
@@ -245,7 +241,7 @@ def getCourseExport(driver, url):
         # If we can't open the URL, make a note, put the driver back,
         # and move on to the next url.
         log(repr(e), "DEBUG")
-        log("Couldn't open " + url)
+        log("Export button did not appear.")
         return False
 
     # Click the "export course content" button.
@@ -262,19 +258,19 @@ def getCourseExport(driver, url):
         # If the download button never appears,
         # make a note and move on to the next url.
         log(repr(e), "DEBUG")
-        log("Timed out on " + url)
+        log("Creation of course export timed out for " + url)
         return False
 
-    # Wait to see if the export processes.
-    #   If it does, download the file.
+    # Download the file.
     download_course_button = driver.find_elements(
         By.CSS_SELECTOR, download_export_button_css
     )
     download_course_button[0].click()
-    #   If not, mark this one as a problem and put it on the list.
+    
+    # Wait until the file is downloaded.
 
-    # TODO: check https://gist.github.com/stefanschmidt/0c35cb275d671014ebe6c1d322518318
-    # Looks like we're mostly on the right track.
+
+
 
     log("Downloading export from " + url)
 
@@ -294,10 +290,8 @@ def PullEdXBackups():
     trimLog()
 
     num_classes = 0
-    num_classes_fixed = 0
+    num_classes_downloaded = 0
     skipped_classes = []
-    staffed_classes = []
-    unfound_addresses = []
     run_headless = True
     timeouts = 0
     too_many_timeouts = 3
@@ -305,7 +299,6 @@ def PullEdXBackups():
     # Read in command line arguments.
     parser = argparse.ArgumentParser(usage=instructions, add_help=False)
     parser.add_argument("-h", "--help", action="store_true")
-    parser.add_argument("-l", "--list", action="store_true")
     parser.add_argument("-v", "--visible", action="store_true")
     parser.add_argument("-f", "--firefox", action="store_true")
     parser.add_argument("csvfile", default=None)
@@ -342,17 +335,14 @@ the script is to run. Press control-C to cancel.
     driver = setUpWebdriver(run_headless, driver_choice)
     signIn(driver, username, password)
 
-    # Open the csv and read it to a set of dicts
+    # Open the csv and visit all the URLs.
     with open(args.csvfile, "r") as file:
 
         log("Opening csv file.")
         reader = csv.DictReader(file)
-
-        # For each line in the CSV...
+        course_list = []
         for each_row in reader:
-            # log("Processing line:", "DEBUG")
-            # log(each_row, "DEBUG")
-            url = "https://studio.edx.org/export/" + each_row["course_id"].strip()
+            url = each_row["URL"].strip()
 
             # Open the URL. Skip lines without one.
             if url == "":
@@ -360,63 +350,14 @@ the script is to run. Press control-C to cancel.
 
             num_classes += 1
             log("Opening " + url)
-            getCourseExport(
-                driver, url
-            )
+            if getCourseExport(driver, url, last_url):
+                log("Downloaded " + url)
+                num_classes_downloaded += 1
+            else:
+                log("Could not download " + url)
+                skipped_classes.append(url)
 
-            # Check to make sure we've opened a new page.
-            # The e-mail input box should be invisible.
-            try:
-                WebDriverWait(driver, 10).until(
-                    EC.invisibility_of_element_located(
-                        (By.CSS_SELECTOR, "input#user-email-input")
-                    )
-                )
-                timeouts = 0
-            except Exception as e:
-                # log(repr(e), "DEBUG")
-                # If we can't open the URL, make a note and skip this course.
-                skipped_classes.append(each_row)
-                if "Dashboard" in driver.title:
-                    log("Course Team page load timed out for " + each_row["URL"])
-                    skipped_classes.append(each_row)
-                    timeouts += 1
-                    if timeouts >= too_many_timeouts:
-                        log(
-                            str(too_many_timeouts)
-                            + " course pages timed out in a row.",
-                            "WARNING",
-                        )
-                        log(
-                            "Check URLs and internet connectivity and try again.",
-                            "WARNING",
-                        )
-                        break
-                continue
-
-            # If we only need to get users and status, we can do that easier.
-            if args.list:
-                log("Getting staff for " + each_row["Course"])
-                # log(user_list)
-                this_class = {
-                    "Course": each_row["Course"],
-                    "URL": url
-                }
-                staffed_classes.append(this_class)
-                continue
-
-
-            if (
-                "Export" not in driver.title
-                or "Forbidden" in driver.title
-            ):
-                log("\nCould not open course " + url)
-                skipped_classes.append(each_row)
-                continue
-
-            log("\n" + driver.title)
-            log(url)
-            getCourseExport(driver, url)
+            last_url = url
 
         # Done with the webdriver.
         driver.quit()
@@ -424,9 +365,7 @@ the script is to run. Press control-C to cancel.
         # Write out a new csv with the ones we couldn't do.
         if len(skipped_classes) > 0:
             log("See remaining_courses.csv for courses that had to be skipped.")
-            with open(
-                "remaining_courses.csv", "w", newline=""
-            ) as remaining_courses:
+            with open("remaining_courses.csv", "w", newline="") as remaining_courses:
                 fieldnames = ["Course", "URL", "Add", "Promote", "Remove", "Demote"]
                 writer = csv.DictWriter(
                     remaining_courses, fieldnames=fieldnames, extrasaction="ignore"
