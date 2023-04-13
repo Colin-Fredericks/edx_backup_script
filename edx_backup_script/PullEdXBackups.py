@@ -266,11 +266,26 @@ def getCourseExport(driver, url, last_url):
         By.CSS_SELECTOR, download_export_button_css
     )
     download_course_button[0].click()
+
+    # Get the filename of the file I'm downloading.
+    # Download link looks like this:
+    # https://prod-edx-edxapp-import-export.s3.amazonaws.com/user_tasks/2023/04/06/course.zibb8idm.tar.gz?
+    # AWSAccessKeyId=AKIAJ2Y2Z3ZQ
     
     # Wait until the file is downloaded.
-
-
-
+    # TODO: What is my download location anyway?
+    # TODO: Don't need to log, just need to wait.
+    path = "path goes here"
+    event_handler = LoggingEventHandler()
+    observer = Observer()
+    observer.schedule(event_handler, path)
+    observer.start()
+    try:
+        while observer.isAlive():
+            observer.join(1)
+    finally:
+        observer.stop()
+        observer.join()
 
     log("Downloading export from " + url)
 
