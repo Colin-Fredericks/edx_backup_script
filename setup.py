@@ -44,7 +44,6 @@ requirements = [
     "trio",
     "trio-websocket",
     "urllib3",
-    "watchdog",
     "wsproto",
 ]
 
