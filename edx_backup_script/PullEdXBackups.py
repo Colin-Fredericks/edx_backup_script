@@ -223,8 +223,15 @@ def getCourseExport(driver, url, last_url):
     log("Export button clicked")
 
     # Once it's clicked, this should appear:
-    preparing_notice = driver.find_elements(By.CSS_SELECTOR, ".status-progress .list-progress > li")
-    export_course_button[0].click()
+    preparing_notice = driver.find_elements(By.CSS_SELECTOR, ".status-progress li")
+    # wait until it's visible
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.visibility_of_element_located((By.CSS_SELECTOR, ".status-progress li"))
+        )
+    except Exception as e:
+       log(repr(e), "DEBUG")
+
     # If it doesn't show up, click again up to 3 times.
     export_attempts = 1
     if len(preparing_notice) == 0:
@@ -236,10 +243,14 @@ def getCourseExport(driver, url, last_url):
             time.sleep(3)
             try:
                 export_course_button[0].click()
+                WebDriverWait(driver, 10).until(
+                    EC.visibility_of_element_located((By.CSS_SELECTOR, ".status-progress li"))
+                )
             except Exception as e:
                 log(repr(e), "DEBUG")
                 log("Export button did not work. Trying again.")
-            preparing_notice = driver.find_elements(By.CSS_SELECTOR, ".status-progress .list-progress > li")
+
+            preparing_notice = driver.find_elements(By.CSS_SELECTOR, ".status-progress li")
             if len(preparing_notice) > 0:
                 break
 
