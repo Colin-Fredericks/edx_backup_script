@@ -4,14 +4,13 @@
 import os
 import csv
 import sys
+import time
 import logging
 import datetime
 import argparse
 import traceback
 from getpass import getpass
 from selenium import webdriver
-from watchdog.observers import Observer
-from watchdog.events import LoggingEventHandler
 from selenium.webdriver import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -19,6 +18,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.safari.options import Options as SafariOptions
 from selenium.common import exceptions as selenium_exceptions
 
 # TODO: Better tracking of what we had to skip.
@@ -96,44 +96,19 @@ def setUpWebdriver(run_headless, driver_choice):
         if run_headless:
             op.headless = True
         driver = webdriver.Firefox(options=op)
+    elif driver_choice == "safari":
+        op = SafariOptions()
+        if run_headless:
+            op.headless = True
+        driver = webdriver.Safari(options=op)
     else:
         op = ChromeOptions()
         op.add_argument("start-maximized")
         if run_headless:
             op.add_argument("--headless")
         driver = webdriver.Chrome(options=op)
-
     driver.implicitly_wait(1)
     return driver
-
-
-# TODO: Do we actually need this for this script?
-# Returns info about the dialog.
-# If there was none, it's "no_dialog"
-# If we closed it and they weren't a user, it's "no_user"
-# If we couldn't close the dialog, it's "failed_to_close"
-def closeErrorDialog(driver):
-
-    # Try to find the "ok" button for the error dialogs.
-    wrong_email_css = "#prompt-error.is-shown button.action-primary"
-    wrong_email_ok_button = driver.find_elements(By.CSS_SELECTOR, wrong_email_css)
-
-    # If there is an error dialog open, report why, clear it, and move on.
-    if len(wrong_email_ok_button) > 0:
-        log("error dialog open")
-        try:
-            # No user with specified e-mail address.
-            wrong_email_ok_button[0].click()
-            return {"reason": "no_user"}
-        except Exception as e:
-            # Couldn't close the error dialog.
-            # log(repr(e), "DEBUG")
-            log("Could not close error dialog for " + driver.title, "WARNING")
-            return {"reason": "failed_to_close"}
-    # If there's no error dialog, we were successful. Move on.
-    else:
-        # No error dialog
-        return {"reason": "no_dialog"}
 
 
 def signIn(driver, username, password):
@@ -152,10 +127,9 @@ def signIn(driver, username, password):
     # Apparently we have to run this more than once sometimes.
     login_count = 0
     while login_count < 3:
-
         # Sign in
         try:
-            found_username_field = WebDriverWait(driver, 100).until(
+            found_username_field = WebDriverWait(driver, 20).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, username_input_css))
             )
         except selenium_exceptions.TimeoutException:
@@ -183,7 +157,7 @@ def signIn(driver, username, password):
         found_dashboard = False
         try:
             log("Finding dashboard...")
-            found_dashboard = WebDriverWait(driver, 10).until(EC.title_contains("Home"))
+            found_dashboard = WebDriverWait(driver, 20).until(EC.url_contains("home"))
         except (
             selenium_exceptions.TimeoutException,
             selenium_exceptions.InvalidSessionIdException,
@@ -222,9 +196,8 @@ def getCourseExport(driver, url, last_url):
     log("Opening " + url)
     driver.get(url)
     try:
-        WebDriverWait(driver, 10).until(
-            EC.url_changes(last_url)
-        )
+        WebDriverWait(driver, 10).until(EC.url_changes(last_url))
+
     except Exception as e:
         # If we can't open the URL, make a note, put the driver back,
         # and move on to the next url.
@@ -247,51 +220,82 @@ def getCourseExport(driver, url, last_url):
     # Click the "export course content" button.
     export_course_button = driver.find_elements(By.CSS_SELECTOR, make_export_button_css)
     export_course_button[0].click()
+    log("Export button clicked")
 
+    # Once it's clicked, this should appear:
+    preparing_notice = driver.find_elements(By.CSS_SELECTOR, ".status-progress .list-progress > li")
+    export_course_button[0].click()
+    # If it doesn't show up, click again up to 3 times.
+    export_attempts = 1
+    if len(preparing_notice) == 0:
+        log("Export button did not work. Trying again.")
+        log("Attempt #" + str(export_attempts))
+        while export_attempts < 3:
+            export_attempts += 1
+            # Wait 3 seconds before clicking again.
+            time.sleep(3)
+            try:
+                export_course_button[0].click()
+            except Exception as e:
+                log(repr(e), "DEBUG")
+                log("Export button did not work. Trying again.")
+            preparing_notice = driver.find_elements(By.CSS_SELECTOR, ".status-progress .list-progress > li")
+            if len(preparing_notice) > 0:
+                break
+
+    if len(preparing_notice) == 0:
+        log("Export button did not work.")
+        return False
+
+    # Wait for the download button to appear.
     try:
         WebDriverWait(driver, wait_for_download_button).until(
             EC.visibility_of_element_located(
                 (By.CSS_SELECTOR, download_export_button_css)
             )
         )
-    except:
+    except Exception as e:
         # If the download button never appears,
         # make a note and move on to the next url.
         log(repr(e), "DEBUG")
         log("Creation of course export timed out for " + url)
         return False
 
-    # Download the file.
+    # Download the file. Should go to the default folder.
     download_course_button = driver.find_elements(
         By.CSS_SELECTOR, download_export_button_css
     )
     download_course_button[0].click()
+    log("Downloading export from " + url)
 
     # Get the filename of the file I'm downloading.
     # Download link looks like this:
     # https://prod-edx-edxapp-import-export.s3.amazonaws.com/user_tasks/2023/04/06/course.zibb8idm.tar.gz?
     # AWSAccessKeyId=AKIAJ2Y2Z3ZQ
-    
+
+    download_url = download_course_button[0].get_attribute("href")
+    downloaded_file = download_url.split("?")[0].split("/")[-1]
+
     # Wait until the file is downloaded.
-    # TODO: What is my download location anyway?
     # TODO: Don't need to log, just need to wait.
-    path = "path goes here"
-    event_handler = LoggingEventHandler()
-    observer = Observer()
-    observer.schedule(event_handler, path)
-    observer.start()
-    try:
-        while observer.isAlive():
-            observer.join(1)
-    finally:
-        observer.stop()
-        observer.join()
 
-    log("Downloading export from " + url)
+    # Check once each second to see if the file is downloaded.
+    timer = 0
+    download_folder = os.path.join(os.path.expanduser("~"), "Downloads")
+    while timer < wait_for_download_button:
+        if os.path.isfile(os.path.join(download_folder, downloaded_file)):
+            log("Download complete from " + url)
+            break
+        time.sleep(1)
+        timer += 1
 
-    # Wait for the file to finish downloading.
-    #   If it does, move on to the next url.
-    #   If not, mark this one as a problem and put it on the list.
+    # If the file is not downloaded, make a note and move on to the next url.
+    if timer >= wait_for_download_button:
+        log("Download timed out for " + url)
+        return False
+
+    log("Download complete from " + url)
+
     return True
 
 
@@ -301,7 +305,6 @@ def getCourseExport(driver, url, last_url):
 
 
 def PullEdXBackups():
-
     trimLog()
 
     num_classes = 0
@@ -316,6 +319,7 @@ def PullEdXBackups():
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("-v", "--visible", action="store_true")
     parser.add_argument("-f", "--firefox", action="store_true")
+    parser.add_argument("-s", "--safari", action="store_true")
     parser.add_argument("csvfile", default=None)
 
     args = parser.parse_args()
@@ -325,9 +329,13 @@ def PullEdXBackups():
     if args.visible:
         run_headless = False
 
+    driver_choice = "chrome"
     if args.firefox:
         log("Using Firefox instead of Chrome.")
         driver_choice = "firefox"
+    if args.safari:
+        log("Using Safari instead of Chrome.")
+        driver_choice = "safari"
 
     if not os.path.exists(args.csvfile):
         sys.exit("Input file not found: " + args.csvfile)
@@ -352,10 +360,10 @@ the script is to run. Press control-C to cancel.
 
     # Open the csv and visit all the URLs.
     with open(args.csvfile, "r") as file:
-
         log("Opening csv file.")
         reader = csv.DictReader(file)
         course_list = []
+        last_url = ""
         for each_row in reader:
             url = each_row["URL"].strip()
 
@@ -364,7 +372,6 @@ the script is to run. Press control-C to cancel.
                 continue
 
             num_classes += 1
-            log("Opening " + url)
             if getCourseExport(driver, url, last_url):
                 log("Downloaded " + url)
                 num_classes_downloaded += 1
@@ -381,7 +388,7 @@ the script is to run. Press control-C to cancel.
         if len(skipped_classes) > 0:
             log("See remaining_courses.csv for courses that had to be skipped.")
             with open("remaining_courses.csv", "w", newline="") as remaining_courses:
-                fieldnames = ["Course", "URL", "Add", "Promote", "Remove", "Demote"]
+                fieldnames = ["URL"]
                 writer = csv.DictWriter(
                     remaining_courses, fieldnames=fieldnames, extrasaction="ignore"
                 )
