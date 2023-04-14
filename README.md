@@ -6,9 +6,9 @@ Using this script requires a plaintext file with the URLs of all the course Expo
 
 Because course exports can range in size from a few MB to a few hundred, you should make sure you have plenty of disk space available before running this script on a large number of courses.
 
-## Chrome Web Driver
+## Web Driver
 
-This repo includes a Mac version of the [Chrome webdriver](https://chromedriver.chromium.org/), which is licensed under the a [separate set of terms](https://chromium.googlesource.com/chromium/src/+/HEAD/LICENSE). If you need a different version of the driver you'll have to replace that file (using the same name).
+This repo includes a Mac version of the [Chrome webdriver](https://chromedriver.chromium.org/), which is licensed under the a [separate set of terms](https://chromium.googlesource.com/chromium/src/+/HEAD/LICENSE). If you need a different version of the driver you'll have to replace that file (using the same name). It also includes geckodriver for Firefox. If you have Safari, you already have safaridriver available, though you may have to [enable it](https://developer.apple.com/documentation/webkit/testing_with_webdriver_in_safari).
 
 Since chromedriver is not a signed Mac application it will throw a warning the first time you run it. Go to System Preferences --> Security and Privacy and tell it to open anyway. You should be able to run it just fine on the next attempt.
 
