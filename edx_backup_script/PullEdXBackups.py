@@ -36,9 +36,10 @@ The output is another CSV file that shows which courses
 couldn't be accessed or downloaded.
 
 Options:
-  -h or --help:    Print this message and exit.
-  -f or --firefox: Use Firefox (geckodriver) instead of Chrome.
-  -v or --visible: Run the browser in normal mode instead of headless.
+  -h or --help:     Print this message and exit.
+  -d or --download: Specify the download directory.
+  -f or --firefox:  Use Firefox (geckodriver) instead of Chrome.
+  -v or --visible:  Run the browser in normal mode instead of headless.
 
 """
 
@@ -88,22 +89,37 @@ def trimLog(log_file="edx_staffing.log", max_lines=20000):
 
 
 # Instantiating a headless Chrome or Firefox browser
-def setUpWebdriver(run_headless, driver_choice):
+def setUpWebdriver(run_headless, driver_choice, download_directory):
     log("Setting up webdriver.")
     os.environ["PATH"] = os.environ["PATH"] + os.pathsep + os.path.dirname(__file__)
+    if download_directory is not None:
+        full_destination = os.path.join("~/Downloads", download_directory)
+        log("Setting download directory to " + full_destination)
+        if not os.path.exists(full_destination):
+            os.makedirs(full_destination)
+
+
     if driver_choice == "firefox":
         op = FirefoxOptions()
         if run_headless:
             op.headless = True
+        if download_directory is not None:
+            op.set_preference("browser.download.folderList", 2)
+            op.set_preference("browser.download.dir", full_destination)
         driver = webdriver.Firefox(options=op)
+        
     elif driver_choice == "safari":
         op = SafariOptions()
         if run_headless:
             op.headless = True
         driver = webdriver.Safari(options=op)
+
     else:
         op = ChromeOptions()
         op.add_argument("start-maximized")
+        if download_directory is not None:
+            prefs = {"download.default_directory": full_destination}
+            op.add_experimental_option("prefs", prefs)
         if run_headless:
             op.add_argument("--headless")
         driver = webdriver.Chrome(options=op)
@@ -112,7 +128,6 @@ def setUpWebdriver(run_headless, driver_choice):
 
 
 def signIn(driver, username, password):
-
     # Locations
     login_page = "https://authn.edx.org/login"
     username_input_css = "#emailOrUsername"
@@ -124,27 +139,40 @@ def signIn(driver, username, password):
     log("Logging in...")
     driver.get(login_page)
 
+    # Wait a second.
+    time.sleep(1)
+
     # Apparently we have to run this more than once sometimes.
     login_count = 0
     while login_count < 3:
         # Sign in
         try:
-            found_username_field = WebDriverWait(driver, 20).until(
+            found_username_field = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, username_input_css))
             )
         except selenium_exceptions.TimeoutException:
             driver.quit()
             sys.exit("Timed out waiting for username field.")
 
+        # Wait a second.
+        time.sleep(1)
+
         username_field = driver.find_elements(By.CSS_SELECTOR, username_input_css)[0]
         username_field.clear()
         username_field.send_keys(username)
         log("Username sent")
 
+        # Wait a second.
+        time.sleep(1)
+
         password_field = driver.find_elements(By.CSS_SELECTOR, password_input_css)[0]
         password_field.clear()
         password_field.send_keys(password)
         log("Password sent")
+
+        # Wait a second.
+        time.sleep(1)
+
 
         # Using ActionChains is necessary because edX put a div over the login button.
         login_button = driver.find_elements(By.CSS_SELECTOR, login_button_css)[0]
@@ -157,7 +185,7 @@ def signIn(driver, username, password):
         found_dashboard = False
         try:
             log("Finding dashboard...")
-            found_dashboard = WebDriverWait(driver, 20).until(EC.url_contains("home"))
+            found_dashboard = WebDriverWait(driver, 10).until(EC.url_contains("home"))
         except (
             selenium_exceptions.TimeoutException,
             selenium_exceptions.InvalidSessionIdException,
@@ -187,7 +215,7 @@ def signIn(driver, username, password):
     sys.exit("Login issue or course dashboard page timed out.")
 
 
-def getCourseExport(driver, url, last_url):
+def getCourseExport(driver, url, last_url, download_directory):
     make_export_button_css = "a.action-export"
     download_export_button_css = "a#download-exported-button"
     wait_for_download_button = 600  # seconds
@@ -224,17 +252,19 @@ def getCourseExport(driver, url, last_url):
 
     # Once it's clicked, this should appear:
     preparing_notice = driver.find_elements(By.CSS_SELECTOR, ".status-progress li")
+    preparing_notice_visible = False
     # wait until it's visible
     try:
-        WebDriverWait(driver, 10).until(
+        preparing_notice_visible = WebDriverWait(driver, 10).until(
             EC.visibility_of_element_located((By.CSS_SELECTOR, ".status-progress li"))
         )
     except Exception as e:
-       log(repr(e), "DEBUG")
+        log(repr(e), "DEBUG")
+        log("li.status-progress not visible.")
 
     # If it doesn't show up, click again up to 3 times.
     export_attempts = 1
-    if len(preparing_notice) == 0:
+    if not preparing_notice_visible:
         log("Export button did not work. Trying again.")
         log("Attempt #" + str(export_attempts))
         while export_attempts < 3:
@@ -244,13 +274,16 @@ def getCourseExport(driver, url, last_url):
             try:
                 export_course_button[0].click()
                 WebDriverWait(driver, 10).until(
-                    EC.visibility_of_element_located((By.CSS_SELECTOR, ".status-progress li"))
+                    EC.visibility_of_element_located(
+                        (By.CSS_SELECTOR, ".status-progress li")
+                    )
                 )
             except Exception as e:
                 log(repr(e), "DEBUG")
-                log("Export button did not work. Trying again.")
 
-            preparing_notice = driver.find_elements(By.CSS_SELECTOR, ".status-progress li")
+            preparing_notice = driver.find_elements(
+                By.CSS_SELECTOR, ".status-progress li"
+            )
             if len(preparing_notice) > 0:
                 break
 
@@ -293,9 +326,18 @@ def getCourseExport(driver, url, last_url):
     # Check once each second to see if the file is downloaded.
     timer = 0
     download_folder = os.path.join(os.path.expanduser("~"), "Downloads")
+    if download_directory is not None:
+        download_folder = os.path.join(download_folder, download_directory)
     while timer < wait_for_download_button:
         if os.path.isfile(os.path.join(download_folder, downloaded_file)):
-            log("Download complete from " + url)
+            #  Rename the file to something useful.
+            os.rename(
+                os.path.join(download_folder, downloaded_file),
+                os.path.join(
+                    download_folder,
+                    url.split("+")[1] + "_" + url.split("+")[2] + ".tar.gz",
+                ),
+            )
             break
         time.sleep(1)
         timer += 1
@@ -322,8 +364,6 @@ def PullEdXBackups():
     num_classes_downloaded = 0
     skipped_classes = []
     run_headless = True
-    timeouts = 0
-    too_many_timeouts = 3
 
     # Read in command line arguments.
     parser = argparse.ArgumentParser(usage=instructions, add_help=False)
@@ -331,6 +371,7 @@ def PullEdXBackups():
     parser.add_argument("-v", "--visible", action="store_true")
     parser.add_argument("-f", "--firefox", action="store_true")
     parser.add_argument("-s", "--safari", action="store_true")
+    parser.add_argument("-d", "--download", action="store", default=None)
     parser.add_argument("csvfile", default=None)
 
     args = parser.parse_args()
@@ -366,14 +407,13 @@ the script is to run. Press control-C to cancel.
     start_time = datetime.datetime.now()
 
     # Prep the web driver and sign into edX.
-    driver = setUpWebdriver(run_headless, driver_choice)
+    driver = setUpWebdriver(run_headless, driver_choice, args.download)
     signIn(driver, username, password)
 
     # Open the csv and visit all the URLs.
     with open(args.csvfile, "r") as file:
         log("Opening csv file.")
         reader = csv.DictReader(file)
-        course_list = []
         last_url = ""
         for each_row in reader:
             url = each_row["URL"].strip()
@@ -383,7 +423,7 @@ the script is to run. Press control-C to cancel.
                 continue
 
             num_classes += 1
-            if getCourseExport(driver, url, last_url):
+            if getCourseExport(driver, url, last_url, args.download):
                 log("Downloaded " + url)
                 num_classes_downloaded += 1
             else:
@@ -398,6 +438,7 @@ the script is to run. Press control-C to cancel.
         # Write out a new csv with the ones we couldn't do.
         if len(skipped_classes) > 0:
             log("See remaining_courses.csv for courses that had to be skipped.")
+            log(str(skipped_classes))
             with open("remaining_courses.csv", "w", newline="") as remaining_courses:
                 fieldnames = ["URL"]
                 writer = csv.DictWriter(
@@ -406,7 +447,11 @@ the script is to run. Press control-C to cancel.
 
                 writer.writeheader()
                 for x in skipped_classes:
-                    writer.writerow(x)
+                    writer.writerow({"URL": x})
+        else:
+            # Remove the remaining_courses.csv file if it exists.
+            if os.path.exists("remaining_courses.csv"):
+                os.remove("remaining_courses.csv")
 
         log("Processed " + str(num_classes - len(skipped_classes)) + " courses")
         end_time = datetime.datetime.now()
