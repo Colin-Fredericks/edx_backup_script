@@ -5,3 +5,4 @@ build/*
 edx_backup.log
 edx_backup.log
 *.log
+BackupVENV/
