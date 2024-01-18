@@ -131,9 +131,8 @@ def signIn(driver, username, password):
     # Locations
     login_page = "https://authn.edx.org/login"
     username_input_css = "#emailOrUsername"
-    user_button_css = "button#user"
     password_input_css = "#password"
-    login_button_css = ".login-button-width"
+    login_button_css = "#sign-in"
 
     # Open the edX sign-in page
     log("Logging in...")
@@ -216,8 +215,9 @@ def signIn(driver, username, password):
 
 
 def getCourseExport(driver, url, last_url, download_directory):
-    make_export_button_css = "a.action-export"
-    download_export_button_css = "a#download-exported-button"
+    make_export_button_xpath = "//button[text()='Export course content']"
+    making_export_indicator_css = "div.course-stepper"
+    download_export_button_css = ".course-stepper + a"
     wait_for_download_button = 600  # seconds
 
     # Open the URL. Wait until the browser's URL changes.
@@ -236,7 +236,7 @@ def getCourseExport(driver, url, last_url, download_directory):
     # Now wait for the export button to appear.
     try:
         WebDriverWait(driver, 10).until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, make_export_button_css))
+            EC.visibility_of_element_located((By.XPATH, make_export_button_xpath))
         )
     except Exception as e:
         # If we can't open the URL, make a note, put the driver back,
@@ -246,21 +246,21 @@ def getCourseExport(driver, url, last_url, download_directory):
         return False
 
     # Click the "export course content" button.
-    export_course_button = driver.find_elements(By.CSS_SELECTOR, make_export_button_css)
+    export_course_button = driver.find_elements(By.CSS_SELECTOR, make_export_button_xpath)
     export_course_button[0].click()
     log("Export button clicked")
 
     # Once it's clicked, this should appear:
-    preparing_notice = driver.find_elements(By.CSS_SELECTOR, ".status-progress li")
+    preparing_notice = driver.find_elements(By.CSS_SELECTOR, making_export_indicator_css)
     preparing_notice_visible = False
     # wait until it's visible
     try:
         preparing_notice_visible = WebDriverWait(driver, 10).until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, ".status-progress li"))
+            EC.visibility_of_element_located((By.CSS_SELECTOR, making_export_indicator_css))
         )
     except Exception as e:
         log(repr(e), "DEBUG")
-        log("li.status-progress not visible.")
+        log("div.course-stepper not visible.")
 
     # If it doesn't show up, click again up to 3 times.
     export_attempts = 1
@@ -275,14 +275,14 @@ def getCourseExport(driver, url, last_url, download_directory):
                 export_course_button[0].click()
                 WebDriverWait(driver, 10).until(
                     EC.visibility_of_element_located(
-                        (By.CSS_SELECTOR, ".status-progress li")
+                        (By.CSS_SELECTOR, making_export_indicator_css)
                     )
                 )
             except Exception as e:
                 log(repr(e), "DEBUG")
 
             preparing_notice = driver.find_elements(
-                By.CSS_SELECTOR, ".status-progress li"
+                By.CSS_SELECTOR, making_export_indicator_css
             )
             if len(preparing_notice) > 0:
                 break
