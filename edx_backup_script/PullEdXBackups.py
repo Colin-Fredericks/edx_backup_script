@@ -217,8 +217,8 @@ def signIn(driver, username, password):
 def getCourseExport(driver, url, last_url, download_directory):
     make_export_button_xpath = "//button[text()='Export course content']"
     making_export_indicator_css = "div.course-stepper"
-    download_export_button_css = ".course-stepper + a"
-    wait_for_download_button = 600  # seconds
+    download_export_button_xpath = "//a[text()='Download exported course']"
+    wait_for_download_button = 100  # seconds
 
     # Open the URL. Wait until the browser's URL changes.
     log("Opening " + url)
@@ -258,9 +258,10 @@ def getCourseExport(driver, url, last_url, download_directory):
         preparing_notice_visible = WebDriverWait(driver, 10).until(
             EC.visibility_of_element_located((By.CSS_SELECTOR, making_export_indicator_css))
         )
+        log("EdX is preparing the export.")
     except Exception as e:
         log(repr(e), "DEBUG")
-        log("div.course-stepper not visible.")
+        log(making_export_indicator_css + " not visible.")
 
     # If it doesn't show up, click again up to 3 times.
     export_attempts = 1
@@ -292,23 +293,42 @@ def getCourseExport(driver, url, last_url, download_directory):
         return False
 
     # Wait for the download button to appear.
+    # For some reason we're not detecting it with visibility_of_element_located,
+    # so we're just going to try to click it once a minute for 10 minutes.
+    download_button_timer = 0
+    max_download_tries = 3
+    while download_button_timer < max_download_tries:
+        log(str(download_button_timer) + " minutes elapsed.")
+        time.sleep(60)
+        download_course_button = driver.find_elements(
+            By.XPATH, download_export_button_xpath
+        )
+        if len(download_course_button) > 0:
+            break
+        download_button_timer += 1
+
+    if download_button_timer >= max_download_tries:
+        log("Creation of course export timed out for " + url)
+        return False
+
+    # Old version:
+    """
     try:
         WebDriverWait(driver, wait_for_download_button).until(
             EC.visibility_of_element_located(
                 (By.CSS_SELECTOR, download_export_button_css)
             )
         )
+        print("Download button appeared.")
     except Exception as e:
         # If the download button never appears,
         # make a note and move on to the next url.
         log(repr(e), "DEBUG")
         log("Creation of course export timed out for " + url)
         return False
+    """
 
     # Download the file. Should go to the default folder.
-    download_course_button = driver.find_elements(
-        By.CSS_SELECTOR, download_export_button_css
-    )
     download_course_button[0].click()
     log("Downloading export from " + url)
 
