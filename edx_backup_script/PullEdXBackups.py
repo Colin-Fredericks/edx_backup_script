@@ -246,7 +246,7 @@ def getCourseExport(driver, url, last_url, download_directory):
         return False
 
     # Click the "export course content" button.
-    export_course_button = driver.find_elements(By.CSS_SELECTOR, make_export_button_xpath)
+    export_course_button = driver.find_elements(By.XPATH, make_export_button_xpath)
     export_course_button[0].click()
     log("Export button clicked")
 
