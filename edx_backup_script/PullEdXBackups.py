@@ -29,8 +29,8 @@ python3 PullEdXBackups.py filename.csv
 
 The csv file must have these headers/columns:
 Course - course name or identifier (optional)
-URL - the address of class' export page. It should look like this:
-      https://studio.edx.org/export/course-v1:HarvardX+CHEM160.en.1x+1T2018
+URL - the address of class' outline page. It should look like this:
+      https://course-authoring.edx.org/course/course-v1:HarvardX+CS109xa+3T2023
 
 The output is another CSV file that shows which courses 
 couldn't be accessed or downloaded.
@@ -215,14 +215,38 @@ def signIn(driver, username, password):
 
 
 def getCourseExport(driver, url, last_url, download_directory):
+    tools_menu_button_css = "#Tools-dropdown-menu"
+    export_course_button_xpath = "//a[text()='Export Course']"
     make_export_button_xpath = "//button[text()='Export course content']"
     making_export_indicator_css = "div.course-stepper"
     download_export_button_xpath = "//a[text()='Download exported course']"
     wait_for_download_button = 100  # seconds
 
-    # Open the URL. Wait until the browser's URL changes.
-    log("Opening " + url)
+    # Apparently we have to open the course outline and go to the export page from there.
+    # This is because edX broke things and didn't feel like fixing them.
+    # Open the course outline.
     driver.get(url)
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.visibility_of_element_located((By.CSS_SELECTOR, tools_menu_button_css))
+        )
+
+    except Exception as e:
+        # If we can't open the URL, make a note, put the driver back,
+        # and move on to the next url.
+        log(repr(e), "DEBUG")
+        log("Tools menu didn't load.")
+        return False
+
+    # Click the tools menu.
+    tool_menu_button = driver.find_elements(By.CSS_SELECTOR, tools_menu_button_css)
+    tool_menu_button[0].click()
+
+    # Click the "export course" button.
+    export_course_button = driver.find_elements(By.XPATH, export_course_button_xpath)
+    export_course_button[0].click()
+
+    log("Opening " + url)
     try:
         WebDriverWait(driver, 10).until(EC.url_changes(last_url))
 
@@ -310,23 +334,6 @@ def getCourseExport(driver, url, last_url, download_directory):
     if download_button_timer >= max_download_tries:
         log("Creation of course export timed out for " + url)
         return False
-
-    # Old version:
-    """
-    try:
-        WebDriverWait(driver, wait_for_download_button).until(
-            EC.visibility_of_element_located(
-                (By.CSS_SELECTOR, download_export_button_css)
-            )
-        )
-        print("Download button appeared.")
-    except Exception as e:
-        # If the download button never appears,
-        # make a note and move on to the next url.
-        log(repr(e), "DEBUG")
-        log("Creation of course export timed out for " + url)
-        return False
-    """
 
     # Download the file. Should go to the default folder.
     download_course_button[0].click()
