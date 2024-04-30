@@ -98,23 +98,7 @@ def setUpWebdriver(run_headless, driver_choice, download_directory):
         if not os.path.exists(full_destination):
             os.makedirs(full_destination)
 
-
-    if driver_choice == "firefox":
-        op = FirefoxOptions()
-        if run_headless:
-            op.headless = True
-        if download_directory is not None:
-            op.set_preference("browser.download.folderList", 2)
-            op.set_preference("browser.download.dir", full_destination)
-        driver = webdriver.Firefox(options=op)
-        
-    elif driver_choice == "safari":
-        op = SafariOptions()
-        if run_headless:
-            op.headless = True
-        driver = webdriver.Safari(options=op)
-
-    else:
+    if driver_choice == "chrome":
         op = ChromeOptions()
         op.add_argument("start-maximized")
         if download_directory is not None:
@@ -123,6 +107,20 @@ def setUpWebdriver(run_headless, driver_choice, download_directory):
         if run_headless:
             op.add_argument("--headless")
         driver = webdriver.Chrome(options=op)
+    elif driver_choice == "safari":
+        op = SafariOptions()
+        if run_headless:
+            op.headless = True
+        driver = webdriver.Safari(options=op)
+    else:
+        op = FirefoxOptions()
+        if run_headless:
+            op.headless = True
+        if download_directory is not None:
+            op.set_preference("browser.download.folderList", 2)
+            op.set_preference("browser.download.dir", full_destination)
+        driver = webdriver.Firefox(options=op)
+
     driver.implicitly_wait(1)
     return driver
 
@@ -171,7 +169,6 @@ def signIn(driver, username, password):
 
         # Wait a second.
         time.sleep(1)
-
 
         # Using ActionChains is necessary because edX put a div over the login button.
         login_button = driver.find_elements(By.CSS_SELECTOR, login_button_css)[0]
@@ -275,12 +272,16 @@ def getCourseExport(driver, url, last_url, download_directory):
     log("Export button clicked")
 
     # Once it's clicked, this should appear:
-    preparing_notice = driver.find_elements(By.CSS_SELECTOR, making_export_indicator_css)
+    preparing_notice = driver.find_elements(
+        By.CSS_SELECTOR, making_export_indicator_css
+    )
     preparing_notice_visible = False
     # wait until it's visible
     try:
         preparing_notice_visible = WebDriverWait(driver, 10).until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, making_export_indicator_css))
+            EC.visibility_of_element_located(
+                (By.CSS_SELECTOR, making_export_indicator_css)
+            )
         )
         log("EdX is preparing the export.")
     except Exception as e:
@@ -396,7 +397,7 @@ def PullEdXBackups():
     parser = argparse.ArgumentParser(usage=instructions, add_help=False)
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("-v", "--visible", action="store_true")
-    parser.add_argument("-f", "--firefox", action="store_true")
+    parser.add_argument("-c", "--chrome", action="store_true")
     parser.add_argument("-s", "--safari", action="store_true")
     parser.add_argument("-d", "--download", action="store", default=None)
     parser.add_argument("csvfile", default=None)
@@ -408,10 +409,10 @@ def PullEdXBackups():
     if args.visible:
         run_headless = False
 
-    driver_choice = "chrome"
-    if args.firefox:
-        log("Using Firefox instead of Chrome.")
-        driver_choice = "firefox"
+    driver_choice = "firefox"
+    if args.chrome:
+        log("Using Chrome instead of Firefox.")
+        driver_choice = "chrome"
     if args.safari:
         log("Using Safari instead of Chrome.")
         driver_choice = "safari"
@@ -444,6 +445,8 @@ the script is to run. Press control-C to cancel.
         last_url = ""
         for each_row in reader:
             url = each_row["URL"].strip()
+            # Remove trailing slashes.
+            url = url.rstrip("/")
 
             # Open the URL. Skip lines without one.
             if url == "":
