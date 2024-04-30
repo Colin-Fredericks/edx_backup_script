@@ -38,7 +38,7 @@ couldn't be accessed or downloaded.
 Options:
   -h or --help:     Print this message and exit.
   -d or --download: Specify the download directory.
-  -f or --firefox:  Use Firefox (geckodriver) instead of Chrome.
+  -c or --chrome:   Use Chrome instead of default Firefox.
   -v or --visible:  Run the browser in normal mode instead of headless.
 
 """
