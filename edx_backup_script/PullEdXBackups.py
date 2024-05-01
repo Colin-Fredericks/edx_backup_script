@@ -319,9 +319,9 @@ def getCourseExport(driver, url, last_url, download_directory):
 
     # Wait for the download button to appear.
     # For some reason we're not detecting it with visibility_of_element_located,
-    # so we're just going to try to click it once a minute for 10 minutes.
+    # so we're just going to try to select it once a minute for 10 minutes.
     download_button_timer = 0
-    max_download_tries = 3
+    max_download_tries = 10
     while download_button_timer < max_download_tries:
         log(str(download_button_timer) + " minutes elapsed.")
         time.sleep(60)
@@ -463,9 +463,13 @@ the script is to run. Press control-C to cancel.
             last_url = url
 
         # Done with the webdriver.
+        # TODO: Wait for the last download to finish, and then quit.
+        # It used to do that automatically, but no such luck now.
         driver.quit()
 
         # Write out a new csv with the ones we couldn't do.
+        # TODO: sometimes driver.quit() doesn't work and we have to kill the process.
+        # Should log the skipped classes to a file as we go instead of waiting.
         if len(skipped_classes) > 0:
             log("See remaining_courses.csv for courses that had to be skipped.")
             log(str(skipped_classes))
