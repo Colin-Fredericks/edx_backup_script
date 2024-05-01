@@ -29,8 +29,8 @@ python3 PullEdXBackups.py filename.csv
 
 The csv file must have these headers/columns:
 Course - course name or identifier (optional)
-URL - the address of class' export page. It should look like this:
-      https://studio.edx.org/export/course-v1:HarvardX+CHEM160.en.1x+1T2018
+URL - the address of class' outline page. It should look like this:
+      https://course-authoring.edx.org/course/course-v1:HarvardX+CS109xa+3T2023
 
 The output is another CSV file that shows which courses 
 couldn't be accessed or downloaded.
@@ -38,7 +38,7 @@ couldn't be accessed or downloaded.
 Options:
   -h or --help:     Print this message and exit.
   -d or --download: Specify the download directory.
-  -f or --firefox:  Use Firefox (geckodriver) instead of Chrome.
+  -c or --chrome:   Use Chrome instead of default Firefox.
   -v or --visible:  Run the browser in normal mode instead of headless.
 
 """
@@ -46,7 +46,7 @@ Options:
 # Prep the logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-handler = logging.FileHandler("edx_staffing.log")
+handler = logging.FileHandler("edx_backup.log")
 formatter = logging.Formatter(
     "%(asctime)s : %(name)s  : %(funcName)s : %(levelname)s : %(message)s"
 )
@@ -98,23 +98,7 @@ def setUpWebdriver(run_headless, driver_choice, download_directory):
         if not os.path.exists(full_destination):
             os.makedirs(full_destination)
 
-
-    if driver_choice == "firefox":
-        op = FirefoxOptions()
-        if run_headless:
-            op.headless = True
-        if download_directory is not None:
-            op.set_preference("browser.download.folderList", 2)
-            op.set_preference("browser.download.dir", full_destination)
-        driver = webdriver.Firefox(options=op)
-        
-    elif driver_choice == "safari":
-        op = SafariOptions()
-        if run_headless:
-            op.headless = True
-        driver = webdriver.Safari(options=op)
-
-    else:
+    if driver_choice == "chrome":
         op = ChromeOptions()
         op.add_argument("start-maximized")
         if download_directory is not None:
@@ -123,6 +107,20 @@ def setUpWebdriver(run_headless, driver_choice, download_directory):
         if run_headless:
             op.add_argument("--headless")
         driver = webdriver.Chrome(options=op)
+    elif driver_choice == "safari":
+        op = SafariOptions()
+        if run_headless:
+            op.headless = True
+        driver = webdriver.Safari(options=op)
+    else:
+        op = FirefoxOptions()
+        if run_headless:
+            op.headless = True
+        if download_directory is not None:
+            op.set_preference("browser.download.folderList", 2)
+            op.set_preference("browser.download.dir", full_destination)
+        driver = webdriver.Firefox(options=op)
+
     driver.implicitly_wait(1)
     return driver
 
@@ -172,7 +170,6 @@ def signIn(driver, username, password):
         # Wait a second.
         time.sleep(1)
 
-
         # Using ActionChains is necessary because edX put a div over the login button.
         login_button = driver.find_elements(By.CSS_SELECTOR, login_button_css)[0]
         actions = ActionChains(driver)
@@ -215,14 +212,38 @@ def signIn(driver, username, password):
 
 
 def getCourseExport(driver, url, last_url, download_directory):
+    tools_menu_button_css = "#Tools-dropdown-menu"
+    export_course_button_xpath = "//a[text()='Export Course']"
     make_export_button_xpath = "//button[text()='Export course content']"
     making_export_indicator_css = "div.course-stepper"
     download_export_button_xpath = "//a[text()='Download exported course']"
     wait_for_download_button = 100  # seconds
 
-    # Open the URL. Wait until the browser's URL changes.
-    log("Opening " + url)
+    # Apparently we have to open the course outline and go to the export page from there.
+    # This is because edX broke things and didn't feel like fixing them.
+    # Open the course outline.
     driver.get(url)
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.visibility_of_element_located((By.CSS_SELECTOR, tools_menu_button_css))
+        )
+
+    except Exception as e:
+        # If we can't open the URL, make a note, put the driver back,
+        # and move on to the next url.
+        log(repr(e), "DEBUG")
+        log("Tools menu didn't load.")
+        return False
+
+    # Click the tools menu.
+    tool_menu_button = driver.find_elements(By.CSS_SELECTOR, tools_menu_button_css)
+    tool_menu_button[0].click()
+
+    # Click the "export course" button.
+    export_course_button = driver.find_elements(By.XPATH, export_course_button_xpath)
+    export_course_button[0].click()
+
+    log("Opening " + url)
     try:
         WebDriverWait(driver, 10).until(EC.url_changes(last_url))
 
@@ -251,12 +272,16 @@ def getCourseExport(driver, url, last_url, download_directory):
     log("Export button clicked")
 
     # Once it's clicked, this should appear:
-    preparing_notice = driver.find_elements(By.CSS_SELECTOR, making_export_indicator_css)
+    preparing_notice = driver.find_elements(
+        By.CSS_SELECTOR, making_export_indicator_css
+    )
     preparing_notice_visible = False
     # wait until it's visible
     try:
         preparing_notice_visible = WebDriverWait(driver, 10).until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, making_export_indicator_css))
+            EC.visibility_of_element_located(
+                (By.CSS_SELECTOR, making_export_indicator_css)
+            )
         )
         log("EdX is preparing the export.")
     except Exception as e:
@@ -294,9 +319,9 @@ def getCourseExport(driver, url, last_url, download_directory):
 
     # Wait for the download button to appear.
     # For some reason we're not detecting it with visibility_of_element_located,
-    # so we're just going to try to click it once a minute for 10 minutes.
+    # so we're just going to try to select it once a minute for 10 minutes.
     download_button_timer = 0
-    max_download_tries = 3
+    max_download_tries = 10
     while download_button_timer < max_download_tries:
         log(str(download_button_timer) + " minutes elapsed.")
         time.sleep(60)
@@ -310,23 +335,6 @@ def getCourseExport(driver, url, last_url, download_directory):
     if download_button_timer >= max_download_tries:
         log("Creation of course export timed out for " + url)
         return False
-
-    # Old version:
-    """
-    try:
-        WebDriverWait(driver, wait_for_download_button).until(
-            EC.visibility_of_element_located(
-                (By.CSS_SELECTOR, download_export_button_css)
-            )
-        )
-        print("Download button appeared.")
-    except Exception as e:
-        # If the download button never appears,
-        # make a note and move on to the next url.
-        log(repr(e), "DEBUG")
-        log("Creation of course export timed out for " + url)
-        return False
-    """
 
     # Download the file. Should go to the default folder.
     download_course_button[0].click()
@@ -389,7 +397,7 @@ def PullEdXBackups():
     parser = argparse.ArgumentParser(usage=instructions, add_help=False)
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("-v", "--visible", action="store_true")
-    parser.add_argument("-f", "--firefox", action="store_true")
+    parser.add_argument("-c", "--chrome", action="store_true")
     parser.add_argument("-s", "--safari", action="store_true")
     parser.add_argument("-d", "--download", action="store", default=None)
     parser.add_argument("csvfile", default=None)
@@ -401,10 +409,10 @@ def PullEdXBackups():
     if args.visible:
         run_headless = False
 
-    driver_choice = "chrome"
-    if args.firefox:
-        log("Using Firefox instead of Chrome.")
-        driver_choice = "firefox"
+    driver_choice = "firefox"
+    if args.chrome:
+        log("Using Chrome instead of Firefox.")
+        driver_choice = "chrome"
     if args.safari:
         log("Using Safari instead of Chrome.")
         driver_choice = "safari"
@@ -437,6 +445,8 @@ the script is to run. Press control-C to cancel.
         last_url = ""
         for each_row in reader:
             url = each_row["URL"].strip()
+            # Remove trailing slashes.
+            url = url.rstrip("/")
 
             # Open the URL. Skip lines without one.
             if url == "":
@@ -453,9 +463,17 @@ the script is to run. Press control-C to cancel.
             last_url = url
 
         # Done with the webdriver.
+        # TODO: Wait for the last download to finish, and then quit.
+        # It used to do that automatically, but no such luck now.
+        """
+        Get the filename from the download link. It'll have an href like this:
+        https://prod-edx-edxapp-import-export.s3.amazonaws.com/user_tasks/2024/01/18/course.y2nltbo1.tar.gz?response-content-disposition=attachment%3B%20filename%3D%22course.y2nltbo1.tar.gz%22&response-content-encoding=application%2Foctet-stream&response-content-type=application%2Fx-tgz&AWSAccessKeyId=ASIA2KBJR2ON5UEQJT7L&Signature=jP%2FCN4jii0fRbriiJ8P5K4sckcA%3D&x-amz-security-token=IQoJb3JpZ2luX2VjEPH%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCXVzLWVhc3QtMSJHMEUCIQC1IQw2c15zqccRkU4aGvDqwVzU%2F2N2L1zfkrWJIBZBFwIgcP6AwjC%2FDxgadnPy9ozLKPtJ0pyuRVAwhDtU4SfiJn0qsAUIShAAGgw3MDg3NTY3NTUzNTUiDIPQlQLewJwxQsZfvCqNBe6KUz%2BilNCJsxQ2cG5mwhbszClRJF8HY5DEZlhJHK2LinAzr3zEpwk%2BVqtkE64sCJGoMk4pK3oquHqzgQAdrOp2iJNDJNYkDUdwY%2B34bVgIdsLRzJh1vwvp3V618K2anmPqXNHGd%2Foec8WWE5eaK1k3KCw4QLi8r73cz67%2FCNcjIM0%2FcDgg69xNJZeOXEvDyInQ0s8mLbmBCNsLrp85eBkg0s2FJkf9KTTjEAi13eBV1vWJUyKHBWeruJmnE%2Fd5O3bJQi5qLkOG8FBJfD8rNhOENxGyyZEIO5DacVQV1L5pvqPKt1MrSLLDhg4HtG%2Fqz7Rd1nDD3DTM48SsOWsp7n6iq22D8ZngsvggGBAQ5UEf0BNWLei%2F5QknHuLFYPyW%2FaqxHRykJkafK0xIWDpd815SMIgmoT4jETOTChIQnX8%2Fuwh0xjRMypERuj%2BKXCfEwE%2Bviou8r7eQCEZx%2F8%2FTAoaAxqjjF14VgtgvGXNdr9UMspM%2FuMcaZkcfpw712t1%2BMvv0DsfriYSxagsXUeeDXuaL5wqgPQHcLFJxiuioja1ENGwR%2FTnCcumtQJcW%2BrVdW4N2cewx2WuX2NLbkqoaKvxpqFwGOD0%2FXmzQBMxvt4nVI6pM63YkB1NwKV1YnM4hMps3Fpx7kqmySWxycHdxEwpCrVyHgzPX7t2xF5sPawF0dbBlI%2BF05zyjJKAGfrIyJFR7h8T3wwUXLNelpEvpguOKy1xcWPgdOIJDc7SXY1XrnjCRSQc0b%2F1bUiwNaxrdno7VkBHxnMz5oTjqvGLMMdcx50ZFOxNnQNFS8REtYrZQmamCjgX5ste68IqYuWzHWKZZwVbl05sPDKNdOCKj2n3kVLqv3NL0%2FEcdEzvvMMfpybEGOrEBd%2FTrfxc5V3NYdhLvSI4d0QHsuJiFG%2FtIVdfrkKE5jwkyqEJTuSYUIoIxNveP27o6xVDsudUv6eYZC2tSAX%2BM0hRbUfZVqiVil0PJkT%2Frgh2JdjaTHfiC6G8gxKgQnff%2BJfSwbqvv9Nl%2BWDZZedAubKgBbn7pCyPBkFz2x5AQdR%2BvNsnCdz5sptT2Gf7AkQShJaIgb%2BPKxfxp4ObuThoiERQUx19xOzn%2BFlonZgUvKwwK&Expires=1715188555
+        """
         driver.quit()
 
         # Write out a new csv with the ones we couldn't do.
+        # TODO: sometimes driver.quit() doesn't work and we have to kill the process.
+        # Should log the skipped classes to a file as we go instead of waiting.
         if len(skipped_classes) > 0:
             log("See remaining_courses.csv for courses that had to be skipped.")
             log(str(skipped_classes))
