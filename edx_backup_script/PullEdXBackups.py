@@ -46,7 +46,7 @@ Options:
 # Prep the logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-handler = logging.FileHandler("edx_staffing.log")
+handler = logging.FileHandler("edx_backup.log")
 formatter = logging.Formatter(
     "%(asctime)s : %(name)s  : %(funcName)s : %(levelname)s : %(message)s"
 )
