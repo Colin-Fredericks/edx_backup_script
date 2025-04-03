@@ -69,7 +69,7 @@ def log(text, level="INFO"):
         logger.critical(text)
 
 
-def trimLog(log_file="edx_staffing.log", max_lines=20000):
+def trimLog(log_file="edx_backup.log", max_lines=20000):
     """
     Trims a log file to a maximum number of lines.
 
@@ -437,6 +437,19 @@ the script is to run. Press control-C to cancel.
     # Prep the web driver and sign into edX.
     driver = setUpWebdriver(run_headless, driver_choice, args.download)
     signIn(driver, username, password)
+
+    # We have to open the Studio outline in order to avoid CORS issues for some reason.
+    driver.get("https://studio.edx.org/home")
+    # This redirects to https://course-authoring.edx.org/home , but we actually want to get the redirect!
+    # When the input with id pgn-searchfield-input-1 shows up we're good to continue.
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "pgn-searchfield-input-1"))
+        )
+    except selenium_exceptions.TimeoutException:
+        logger.error("Studio page load timed out.")
+        driver.quit()
+        sys.exit("Studio page load timed out.")
 
     # Open the csv and visit all the URLs.
     with open(args.csvfile, "r") as file:
