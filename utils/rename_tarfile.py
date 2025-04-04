@@ -3,10 +3,10 @@
 # according to the course name and run number.
 
 import os
-import glob
 import tarfile
 import argparse
-import lxml.etree as ET
+import xml.etree.ElementTree as ET
+# import lxml.etree as ET
 
 def rename_tarfile(filename):
     # Read the tarfile without extracting it
