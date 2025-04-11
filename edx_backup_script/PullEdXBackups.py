@@ -10,11 +10,12 @@ import datetime
 import argparse
 import traceback
 from getpass import getpass
-from selenium import webdriver
-from selenium.webdriver import ActionChains
+from selenium.webdriver.chrome.webdriver import WebDriver as Chrome
+from selenium.webdriver.firefox.webdriver import WebDriver as Firefox
+from selenium.webdriver.safari.webdriver import WebDriver as Safari
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
@@ -106,12 +107,12 @@ def setUpWebdriver(run_headless, driver_choice, download_directory):
             op.add_experimental_option("prefs", prefs)
         if run_headless:
             op.add_argument("--headless")
-        driver = webdriver.Chrome(options=op)
+        driver = Chrome(options=op)
     elif driver_choice == "safari":
         op = SafariOptions()
         if run_headless:
-            op.headless = True
-        driver = webdriver.Safari(options=op)
+            op.add_argument("--headless")
+        driver = Safari(options=op)
     else:
         op = FirefoxOptions()
         if run_headless:
@@ -119,7 +120,7 @@ def setUpWebdriver(run_headless, driver_choice, download_directory):
         if download_directory is not None:
             op.set_preference("browser.download.folderList", 2)
             op.set_preference("browser.download.dir", full_destination)
-        driver = webdriver.Firefox(options=op)
+        driver = Firefox(options=op)
 
     driver.implicitly_wait(1)
     return driver
@@ -144,7 +145,7 @@ def signIn(driver, username, password):
     while login_count < 3:
         # Sign in
         try:
-            found_username_field = WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, username_input_css))
             )
         except selenium_exceptions.TimeoutException:
