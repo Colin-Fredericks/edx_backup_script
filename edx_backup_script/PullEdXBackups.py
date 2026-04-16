@@ -56,7 +56,7 @@ logger.addHandler(handler)
 
 
 # Just a faster thing to type and read.
-def log(text, level="INFO"):
+def log(text: str, level: str = "INFO"):
     print(text)
     if level == "DEBUG":
         logger.debug(text)
@@ -187,7 +187,7 @@ def signIn(driver, username, password):
             selenium_exceptions.TimeoutException,
             selenium_exceptions.InvalidSessionIdException,
         ):
-            log(traceback.print_exc(), "WARNING")
+            log(str(traceback.print_exc()), "WARNING")
             login_fail = driver.find_elements(By.CSS_SELECTOR, "#login-failure-alert")
             if len(login_fail) > 0:
                 log("Incorrect login or password")
@@ -358,13 +358,17 @@ def getCourseExport(driver, url, last_url, download_directory):
     if download_directory is not None:
         download_folder = os.path.join(download_folder, download_directory)
     while timer < wait_for_download_button:
-        if os.path.isfile(os.path.join(download_folder, downloaded_file)):
+        expected_filepath = os.path.join(download_folder, downloaded_file)
+        if os.path.isfile(expected_filepath):
+            new_filename = (
+                url.split("+")[1] + "_" + url.split("+")[2].split("/")[0] + ".tar.gz"
+            )
             #  Rename the file to something useful.
             os.rename(
-                os.path.join(download_folder, downloaded_file),
+                expected_filepath,
                 os.path.join(
                     download_folder,
-                    url.split("+")[1] + "_" + url.split("+")[2] + ".tar.gz",
+                    new_filename,
                 ),
             )
             break
